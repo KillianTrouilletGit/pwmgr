@@ -1,0 +1,33 @@
+[versions]
+kotlin = "2.0.21"
+kotlinx-serialization = "1.7.3"
+kotlinx-coroutines = "1.9.0"
+kotlinx-datetime = "0.6.1"
+bouncycastle = "1.78.1"
+junit = "5.11.3"
+compose-plugin = "1.7.3"
+agp = "8.5.2"
+androidx-activity-compose = "1.9.3"
+androidx-core-ktx = "1.13.1"
+androidx-lifecycle = "2.8.7"
+
+[libraries]
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+kotlinx-coroutines-core    = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-datetime           = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
+bouncycastle-bcprov        = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+junit-jupiter-api          = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
+junit-jupiter-engine       = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
+junit-jupiter-params       = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
+androidx-activity-compose  = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
+androidx-core-ktx          = { module = "androidx.core:core-ktx", version.ref = "androidx-core-ktx" }
+androidx-lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle" }
+
+[plugins]
+kotlin-multiplatform   = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-android         = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-serialization   = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-compose         = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-multiplatform  = { id = "org.jetbrains.compose", version.ref = "compose-plugin" }
+android-application    = { id = "com.android.application", version.ref = "agp" }
+android-library        = { id = "com.android.library", version.ref = "agp" }

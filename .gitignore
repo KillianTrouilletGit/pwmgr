@@ -1,0 +1,14 @@
+.gradle/
+build/
+**/build/
+.idea/
+*.iml
+local.properties
+.kotlin/
+.DS_Store
+out/
+captures/
+.cxx/
+# Drive OAuth client config (per-user). Should never be committed.
+drive-config.json
+**/drive-config.json
