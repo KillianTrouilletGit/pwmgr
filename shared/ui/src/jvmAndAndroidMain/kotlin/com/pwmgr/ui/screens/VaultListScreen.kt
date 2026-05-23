@@ -18,8 +18,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -64,11 +66,14 @@ fun VaultListScreen(state: AppState) {
                 revision = state.session?.meta?.revision ?: 0L,
                 syncStatus = state.syncStatus,
                 syncAvailable = state.syncAvailable,
+                browserExtensionAvailable = state.browserExtensionAvailable,
                 query = query,
                 onQueryChange = { query = it },
                 onLock = { state.lock() },
                 onSyncClick = { state.openDriveSetup() },
                 onSyncNow = { state.syncNow() },
+                onSettingsClick = { state.openSettings() },
+                onBrowserExtensionClick = { state.openBrowserExtension() },
             )
         },
         floatingActionButton = {
@@ -111,11 +116,14 @@ private fun TopBar(
     revision: Long,
     syncStatus: SyncStatus,
     syncAvailable: Boolean,
+    browserExtensionAvailable: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
     onLock: () -> Unit,
     onSyncClick: () -> Unit,
     onSyncNow: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onBrowserExtensionClick: () -> Unit,
 ) {
     Column {
         Row(
@@ -147,6 +155,14 @@ private fun TopBar(
             if (syncAvailable) {
                 SyncStatusButton(syncStatus, onClick = onSyncClick, onSyncNow = onSyncNow)
                 Spacer(Modifier.width(4.dp))
+            }
+            if (browserExtensionAvailable) {
+                IconButton(onClick = onBrowserExtensionClick) {
+                    Icon(Icons.Filled.Extension, contentDescription = "Browser extension")
+                }
+            }
+            IconButton(onClick = onSettingsClick) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }
             IconButton(onClick = onLock) {
                 Icon(Icons.Filled.Lock, contentDescription = "Lock vault")

@@ -267,10 +267,11 @@ data class DriveOAuthConfig(val clientId: String, val clientSecret: String) {
         fun loadFromFile(path: java.nio.file.Path): DriveOAuthConfig? {
             if (!java.nio.file.Files.exists(path)) return null
             val text = java.nio.file.Files.readString(path)
-            val parsed = Json { ignoreUnknownKeys = true }
-                .decodeFromString(FileFormat.serializer(), text)
+            val parsed = configJson.decodeFromString(FileFormat.serializer(), text)
             return DriveOAuthConfig(parsed.clientId, parsed.clientSecret)
         }
+
+        private val configJson = Json { ignoreUnknownKeys = true }
 
         @Serializable
         private data class FileFormat(val clientId: String, val clientSecret: String)

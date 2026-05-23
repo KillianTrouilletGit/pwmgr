@@ -43,15 +43,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pwmgr.core.model.EntryType
 import com.pwmgr.core.model.VaultEntry
 import com.pwmgr.ui.AppState
+import com.pwmgr.ui.ClipboardController
 import com.pwmgr.ui.PasswordGenerator
+import com.pwmgr.ui.rememberClipboardController
 import kotlinx.datetime.Clock
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -68,10 +68,12 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
     var password by remember { mutableStateOf(existing?.password ?: "") }
     var url by remember { mutableStateOf(existing?.urls?.firstOrNull() ?: "") }
     var notes by remember { mutableStateOf(existing?.notes ?: "") }
+    var totpSeed by remember { mutableStateOf(existing?.totpSeed ?: "") }
     var reveal by remember { mutableStateOf(isNew) }
     var error by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showGenerator by remember { mutableStateOf(false) }
+    val clipboard = rememberClipboardController(autoClearMs = state.settings.clipboardClearMs)
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -118,6 +120,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                         onValueChange = { password = it },
                         reveal = reveal,
                         onToggleReveal = { reveal = !reveal },
+                        clipboard = clipboard,
                     )
                     TextButton(onClick = { showGenerator = !showGenerator }) {
                         Icon(Icons.Filled.Casino, contentDescription = null)
@@ -141,6 +144,18 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                         placeholder = { Text("https://example.com") },
                         modifier = Modifier.fillMaxWidth(),
                     )
+
+                    OutlinedTextField(
+                        value = totpSeed,
+                        onValueChange = { totpSeed = it },
+                        label = { Text("TOTP seed (base32)") },
+                        singleLine = true,
+                        placeholder = { Text("JBSWY3DPEHPK3PXP — leave empty if no 2FA") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (totpSeed.isNotBlank()) {
+                        TotpCodePanel(seed = totpSeed, clipboard = clipboard)
+                    }
                 }
 
                 OutlinedTextField(
@@ -165,7 +180,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                         enabled = title.isNotBlank() && !state.busy,
                         onClick = {
                             val result = saveEntry(
-                                state, existing, title, type, username, password, url, notes,
+                                state, existing, title, type, username, password, url, notes, totpSeed,
                             )
                             result.onSuccess { state.closeEditor() }
                             result.onFailure { error = it.message ?: "Failed to save" }
@@ -241,8 +256,8 @@ private fun PasswordField(
     onValueChange: (String) -> Unit,
     reveal: Boolean,
     onToggleReveal: () -> Unit,
+    clipboard: ClipboardController,
 ) {
-    val clipboard = LocalClipboardManager.current
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -251,7 +266,7 @@ private fun PasswordField(
         visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             Row {
-                IconButton(onClick = { clipboard.setText(AnnotatedString(value)) }) {
+                IconButton(onClick = { clipboard.copy(value) }) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = "Copy password")
                 }
                 IconButton(onClick = onToggleReveal) {
@@ -365,6 +380,7 @@ private fun saveEntry(
     password: String,
     url: String,
     notes: String,
+    totpSeed: String,
 ): Result<Unit> {
     val now = Clock.System.now()
     val entry = VaultEntry(
@@ -375,8 +391,50 @@ private fun saveEntry(
         password = password.takeIf { it.isNotBlank() },
         urls = if (url.isBlank()) emptyList() else listOf(url.trim()),
         notes = notes.takeIf { it.isNotBlank() },
+        totpSeed = totpSeed.takeIf { it.isNotBlank() }?.replace(" ", ""),
         createdAt = existing?.createdAt ?: now,
         updatedAt = now,
     )
     return state.upsertEntry(entry)
 }
+
+@Composable
+private fun TotpCodePanel(seed: String, clipboard: ClipboardController) {
+    var nowEpoch by remember { mutableStateOf(Clock.System.now().epochSeconds) }
+    LaunchedEffect(seed) {
+        while (true) {
+            nowEpoch = Clock.System.now().epochSeconds
+            kotlinx.coroutines.delay(1_000L)
+        }
+    }
+    val code = remember(nowEpoch, seed) {
+        runCatching { com.pwmgr.core.totp.Totp.generate(seed, nowEpoch) }.getOrNull()
+    }
+    val remaining = remember(nowEpoch) { com.pwmgr.core.totp.Totp.secondsRemaining(nowEpoch) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Current code", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = code?.let { formatCode(it) } ?: "Invalid seed",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = if (code != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                )
+                Text("Rotates in ${remaining}s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (code != null) {
+                IconButton(onClick = { clipboard.copy(code) }) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = "Copy TOTP code")
+                }
+            }
+        }
+    }
+}
+
+/** Splits "287082" into "287 082" for readability. */
+private fun formatCode(code: String): String =
+    if (code.length == 6) "${code.substring(0, 3)} ${code.substring(3)}" else code

@@ -19,11 +19,14 @@ import com.pwmgr.storage.OAuthProvider
 import com.pwmgr.storage.SyncEngine
 import com.pwmgr.storage.SyncOutcome
 import com.pwmgr.storage.TokenStore
+import com.pwmgr.ui.settings.AppSettings
+import com.pwmgr.ui.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlin.uuid.ExperimentalUuidApi
@@ -36,6 +39,9 @@ sealed interface Screen {
     data object VaultList : Screen
     data class EntryEditor(val entryId: String?) : Screen
     data object DriveSetup : Screen
+    data object Settings : Screen
+    /** Windows-only — rendered by the platform via [PwMgrApp]'s `extraRoute` slot. */
+    data object BrowserExtension : Screen
 }
 
 sealed interface SyncStatus {
@@ -60,8 +66,16 @@ class AppState(
     private val clock: Clock = Clock.System,
     private val oauthProvider: OAuthProvider? = null,
     private val tokenStore: TokenStore? = null,
+    private val biometricGate: BiometricGate? = null,
+    private val settingsStore: SettingsStore? = null,
+    private val exportSink: ExportSink? = null,
+    /** Surface the Browser-Extension nav button — Windows-only feature. */
+    val browserExtensionAvailable: Boolean = false,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
+
+    /** True if the platform wired an [ExportSink] (file picker available). */
+    val exportAvailable: Boolean get() = exportSink != null
     var screen by mutableStateOf<Screen>(if (storage.exists()) Screen.Unlock else Screen.CreateVault)
         private set
 
@@ -90,10 +104,39 @@ class AppState(
     /** True if Drive setup is even possible (the platform provided an OAuthProvider). */
     val syncAvailable: Boolean get() = oauthProvider != null && tokenStore != null
 
+    /** True if the platform supports biometric/convenience unlock at all. */
+    var biometricAvailable: Boolean by mutableStateOf(false)
+        private set
+
+    /** True if a biometric wrap has been enrolled for this vault. */
+    var biometricEnrolled: Boolean by mutableStateOf(biometricGate?.isEnrolled() == true)
+        private set
+
+    /** Error message from the most recent biometric op, or null if all good. */
+    var biometricError: String? by mutableStateOf(null)
+        private set
+
+    /** User-facing preferences (auto-lock timeout, clipboard clear, etc.). Always non-null. */
+    var settings: AppSettings by mutableStateOf(settingsStore?.load() ?: AppSettings.DEFAULT)
+        private set
+
     private var syncEngine: SyncEngine? = null
     private var pendingSyncJob: Job? = null
     private var lastEtag: String? = null
     private var cachedAccount: OAuthAccount? = null
+
+    /** Wall-clock ms of the last user-initiated action (input/nav). Drives [settings.autoLockMs]. */
+    private var lastActivityMs: Long = clock.now().toEpochMilliseconds()
+    private var autoLockJob: Job? = null
+
+    init {
+        // Probe biometric hardware availability asynchronously — the call may touch the OS
+        // crypto stack (DPAPI on Windows, BiometricManager on Android) which we don't want
+        // to block on at construction time.
+        scope.launch {
+            biometricAvailable = biometricGate?.isAvailable() == true
+        }
+    }
 
     // ── Vault lifecycle ─────────────────────────────────────────────────────
 
@@ -111,6 +154,7 @@ class AppState(
             screen = Screen.VaultList
             unlockError = null
             evaluateSyncState()
+            startAutoLockWatcher()
             Result.success(Unit)
         } catch (t: Throwable) {
             Result.failure(t)
@@ -139,6 +183,7 @@ class AppState(
             consecutiveFailures = 0
             lockedOutUntilEpochMs = 0
             evaluateSyncState()
+            startAutoLockWatcher()
             Result.success(Unit)
         } catch (e: WrongPasswordException) {
             registerFailure()
@@ -162,6 +207,8 @@ class AppState(
     fun lock() {
         pendingSyncJob?.cancel()
         pendingSyncJob = null
+        autoLockJob?.cancel()
+        autoLockJob = null
         syncEngine = null
         cachedAccount = null
         lastEtag = null
@@ -173,12 +220,68 @@ class AppState(
         unlockError = null
     }
 
+    /**
+     * Called by screens on user activity (key press, click, scroll). Resets the auto-lock
+     * countdown. Cheap — just touches a Long.
+     */
+    fun recordActivity() {
+        lastActivityMs = clock.now().toEpochMilliseconds()
+    }
+
+    fun updateSettings(updated: AppSettings) {
+        settings = updated
+        settingsStore?.save(updated)
+        // Restart the auto-lock watcher so the new timeout takes effect immediately.
+        if (session != null) startAutoLockWatcher()
+    }
+
+    /**
+     * Writes the on-disk vault bytes verbatim to a user-chosen destination via the platform
+     * [ExportSink]. The exported file IS a valid vault — same master password unlocks it.
+     * Returns the destination path (for the "exported to …" toast) or null on cancel/error.
+     */
+    suspend fun exportVault(): String? {
+        val sink = exportSink ?: return null
+        val bytes = try {
+            storage.read()
+        } catch (_: Throwable) {
+            return null
+        }
+        val stamp = clock.now().toString().replace(':', '-').take(19) // "2026-05-15T12-34-56"
+        return sink.saveBytes(suggestedFilename = "pwmgr-export-$stamp.enc", bytes = bytes)
+    }
+
+    private fun startAutoLockWatcher() {
+        autoLockJob?.cancel()
+        if (settings.autoLockMs <= 0L) return  // never lock
+        recordActivity()
+        autoLockJob = scope.launch {
+            while (isActive) {
+                val timeout = settings.autoLockMs
+                if (timeout <= 0L) return@launch
+                val now = clock.now().toEpochMilliseconds()
+                val elapsed = now - lastActivityMs
+                if (elapsed >= timeout) {
+                    lock()
+                    return@launch
+                }
+                // Wake up either at the projected lock time, or once a second to handle
+                // recordActivity() bumps that push the deadline forward.
+                delay(minOf(timeout - elapsed, 1_000L))
+            }
+        }
+    }
+
     // ── Navigation ──────────────────────────────────────────────────────────
 
     fun openEditor(entryId: String?) { screen = Screen.EntryEditor(entryId) }
     fun closeEditor() { screen = Screen.VaultList }
     fun openDriveSetup() { screen = Screen.DriveSetup }
     fun closeDriveSetup() { screen = Screen.VaultList }
+    fun openBrowserExtension() { screen = Screen.BrowserExtension }
+    fun closeBrowserExtension() { screen = Screen.VaultList }
+    fun openSettings() { screen = Screen.Settings }
+    fun closeSettings() { screen = Screen.VaultList }
 
     // ── CRUD ────────────────────────────────────────────────────────────────
 
@@ -341,6 +444,69 @@ class AppState(
             syncStatus = SyncStatus.Ready(clock.now().toEpochMilliseconds(), email)
         } catch (t: Throwable) {
             syncStatus = SyncStatus.Failed(t.message ?: t::class.simpleName.orEmpty(), email)
+        }
+    }
+
+    // ── Biometric unlock ────────────────────────────────────────────────────
+
+    /**
+     * Enrolls biometric unlock for this vault. The vault must be unlocked (VK in memory).
+     * On Android, this prompts the biometric sensor. On Windows, it's silent (DPAPI).
+     */
+    suspend fun enableBiometric(): Result<Unit> {
+        val gate = biometricGate ?: return Result.failure(IllegalStateException("biometric not available"))
+        val s = session ?: return Result.failure(IllegalStateException("vault is locked"))
+        biometricError = null
+        return gate.enroll(s.vaultKey).also { result ->
+            result.onSuccess { biometricEnrolled = true }
+            result.onFailure { biometricError = it.message }
+        }
+    }
+
+    /**
+     * Authenticates the user, decrypts the wrapped VK, and opens the vault. Used from the
+     * unlock screen when biometric is enrolled. Returns null on cancel; a Throwable on error.
+     */
+    suspend fun unlockWithBiometric(): Result<Unit> {
+        val gate = biometricGate ?: return Result.failure(IllegalStateException("biometric not available"))
+        if (!storage.exists()) return Result.failure(IllegalStateException("no vault on disk"))
+        busy = true
+        biometricError = null
+        return try {
+            val vk = gate.unlock() ?: return Result.failure(BiometricCancelledException())
+            try {
+                val fileBytes = storage.read()
+                val result = VaultFile.unlockWithVaultKey(fileBytes, vk)
+                session = result.session
+                payload = result.payload
+                screen = Screen.VaultList
+                unlockError = null
+                consecutiveFailures = 0
+                lockedOutUntilEpochMs = 0
+                evaluateSyncState()
+                startAutoLockWatcher()
+                Result.success(Unit)
+            } finally {
+                vk.zeroize()
+            }
+        } catch (t: Throwable) {
+            biometricError = t.message
+            Result.failure(t)
+        } finally {
+            busy = false
+        }
+    }
+
+    suspend fun disableBiometric(): Result<Unit> {
+        val gate = biometricGate ?: return Result.success(Unit)
+        return try {
+            gate.disable()
+            biometricEnrolled = false
+            biometricError = null
+            Result.success(Unit)
+        } catch (t: Throwable) {
+            biometricError = t.message
+            Result.failure(t)
         }
     }
 

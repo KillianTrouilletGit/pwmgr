@@ -18,6 +18,32 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Translucent activity used by the AutofillService to authenticate the user before
+            handing credentials back to the system. Excluded from recents so the bouncer feels
+            like a momentary overlay over the requesting app.
+        -->
+        <activity
+            android:name=".autofill.AutofillUnlockActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
+
+        <service
+            android:name=".autofill.PwMgrAutofillService"
+            android:exported="true"
+            android:label="@string/autofill_service_label"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
     </application>
 
 </manifest>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AutofillService configuration. settingsActivity points the OS at MainActivity so users
+    can tap "PwMgr settings" from Android's Autofill menu. We don't (yet) advertise dataset
+    filling or compatibility-mode browsers — the system uses default behavior for both.
+-->
+<autofill-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.pwmgr.android.MainActivity" />

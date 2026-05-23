@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -8,9 +9,7 @@ plugins {
 
 kotlin {
     jvm {
-        compilations.all {
-            kotlinOptions.jvmTarget = "17"
-        }
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
 
     sourceSets {
@@ -32,4 +31,11 @@ compose.desktop {
             packageVersion = "0.1.0"
         }
     }
+}
+
+// The browser-extension installer in the desktop app looks for the built native-host
+// distribution at ../nativeHost/build/install/pwmgr-native-host/. Make sure it exists
+// whenever the user runs the desktop app.
+tasks.matching { it.name == "run" }.configureEach {
+    dependsOn(":nativeHost:installDist")
 }

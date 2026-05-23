@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -16,13 +17,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,11 +34,22 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pwmgr.ui.AppState
+import kotlinx.coroutines.launch
 
 @Composable
 fun UnlockScreen(state: AppState) {
     var password by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Auto-fire biometric prompt on first display if enrolled — typical UX for "fingerprint as
+    // primary, password as fallback". User can dismiss the system prompt and fall through to
+    // the password field below.
+    LaunchedEffect(state.biometricEnrolled) {
+        if (state.biometricEnrolled && state.session == null) {
+            state.unlockWithBiometric()
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -89,6 +104,25 @@ fun UnlockScreen(state: AppState) {
                 },
             ) {
                 Text(if (state.busy) "Unlocking…" else "Unlock")
+            }
+
+            if (state.biometricEnrolled) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    enabled = !state.busy,
+                    onClick = { scope.launch { state.unlockWithBiometric() } },
+                ) {
+                    Icon(Icons.Filled.Fingerprint, contentDescription = null)
+                    Text("  Use biometric")
+                }
+            }
+            if (state.biometricError != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    state.biometricError!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
 
             Spacer(Modifier.height(16.dp))

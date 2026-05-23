@@ -66,16 +66,44 @@ Entries plaintext (UTF-8 JSON array of VaultEntry)
 
 Three distinct keys exist conceptually; only one (VK) is ever held in memory longer than a single function call. MK is derived, used to unwrap VK, and discarded immediately.
 
-### 3.1 Biometric path (optional, per-device)
+### 3.1 Biometric / convenience unlock (optional, per-device)
 
-When the user enables biometric unlock on a device:
+When the user enables biometric (Android) or convenience (Windows) unlock on a device, VK is wrapped under a platform-specific hardware key. The wrap blob lives locally only — never in the vault file, never synced.
 
-1. A new hardware-bound key `HBK` is generated:
-   - **Android**: AES-256 generated via `KeyGenParameterSpec` with `setUserAuthenticationRequired(true)`, `setUserAuthenticationParameters(0, BIOMETRIC_STRONG)`, `setInvalidatedByBiometricEnrollment(true)`. Stored in Android Keystore.
-   - **Windows**: A symmetric key wrapped by DPAPI (`CryptProtectData` with `CRYPTPROTECT_LOCAL_MACHINE` *not* set, so it's per-user), gated by `KeyCredentialManager` (Windows Hello). The DPAPI blob is stored in `%LOCALAPPDATA%\PwMgr\hbk.dpapi`.
-2. VK is encrypted under HBK using AES-256-GCM, producing `biometricWrap = { nonce, ct }`. This blob is stored **locally only** — never in the vault file, never synced.
-3. To unlock biometrically: user presents biometric → OS releases HBK → decrypt `biometricWrap` → obtain VK directly, skipping Argon2id entirely.
-4. Disabling biometrics: delete `biometricWrap` and (if possible) the HBK entry in the keystore. Master password remains the source of truth.
+#### Android — true biometric
+
+1. An AES-256 key is generated in Android Keystore via `KeyGenParameterSpec` with:
+   - `setUserAuthenticationRequired(true)`
+   - `setUserAuthenticationParameters(0, BIOMETRIC_STRONG)`
+   - `setInvalidatedByBiometricEnrollment(true)`
+2. VK is encrypted with this key under AES-256-GCM. The IV and ciphertext are persisted in a small JSON file (`biometric.wrap`) next to the vault.
+3. To unlock: BiometricPrompt with a Cipher CryptoObject. The OS releases the key only after a successful biometric match. The unlocked Cipher then decrypts the wrap → VK.
+4. Re-enrolling a fingerprint on the device automatically invalidates the keystore key. The next unlock attempt fails with `KeyPermanentlyInvalidatedException`; we delete the stale wrap and the user must re-enroll biometric unlock with their master password.
+
+#### Windows — DPAPI convenience unlock (v1 compromise)
+
+The plan originally targeted Windows Hello via WinRT's `KeyCredentialManager`. We deferred this to a later phase: WinRT bindings from the JVM aren't first-class, and the integration risk wasn't worth the v1 ROI. The pragmatic fallback (documented in the plan) is **DPAPI**:
+
+1. VK is encrypted with `CryptProtectData` using per-user scope (not `CRYPTPROTECT_LOCAL_MACHINE`) and a fixed entropy string (`"pwmgr-biometric-wrap-v1"` as bytes).
+2. The DPAPI blob is stored in `%LOCALAPPDATA%\PwMgr\hbk.dpapi`.
+3. To unlock: `CryptUnprotectData` is called — silently, no Hello prompt fires. The user gets convenience unlock that survives reboot but is bound to their Windows user account.
+
+**Honest comparison:**
+
+| Property | Android | Windows v1 |
+|---|---|---|
+| Hardware-backed key | ✅ Keystore / StrongBox | ✅ DPAPI master key (per-user, DPAPI-managed) |
+| Biometric prompt required at unlock | ✅ BiometricPrompt | ❌ Silent |
+| Re-enrolled biometric invalidates wrap | ✅ | ❌ N/A |
+| Resistant to a different OS user on the same machine | ✅ | ✅ |
+| Resistant to malware running as the same user | ⚠️ key never leaves secure element, but a process can request authentication | ❌ malware can call `CryptUnprotectData` itself |
+| UI labeling | "Biometric unlock" | "Convenience unlock" |
+
+The Settings screen labels the Windows option clearly to avoid claiming biometric protection we don't deliver. A future phase (Windows Hello via WinRT) can upgrade this without breaking the on-disk format — only the wrap mechanism changes.
+
+#### Disabling
+
+Either platform: delete the wrap file and (where possible) the hardware key entry. Master password remains the source of truth — biometric/convenience unlock is purely a UX layer over it.
 
 **The biometric wrap is a convenience cache.** Losing it (factory reset, biometric re-enrollment) just forces a master-password unlock; it never causes data loss because VK is also recoverable from `wrap` in the vault file.
 

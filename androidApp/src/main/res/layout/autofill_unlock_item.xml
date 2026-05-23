@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Shown by the system autofill UI as the single suggestion when the vault is locked.
+    Tapping it fires the auth PendingIntent that launches AutofillUnlockActivity.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="12dp">
+
+    <TextView
+        android:id="@+id/autofill_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/autofill_unlock_prompt"
+        android:textSize="16sp"
+        android:textColor="@android:color/black" />
+
+</LinearLayout>

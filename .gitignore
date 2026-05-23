@@ -12,3 +12,10 @@ captures/
 # Drive OAuth client config (per-user). Should never be committed.
 drive-config.json
 **/drive-config.json
+# Release signing material — keep all of this OUT of the repo.
+*.jks
+*.keystore
+*.pfx
+*.p12
+*.pem
+

@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URI
 import java.net.URLEncoder
 
 /**
@@ -115,7 +115,7 @@ class GoogleDriveClient(
         extraHeaders: Map<String, String> = emptyMap(),
     ): HttpResponse {
         val token = getAccessToken()
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val conn = URI(url).toURL().openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.setRequestProperty("Authorization", "Bearer $token")

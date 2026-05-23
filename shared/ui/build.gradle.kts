@@ -1,5 +1,8 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.android.library)
@@ -7,14 +10,10 @@ plugins {
 
 kotlin {
     jvm {
-        compilations.all {
-            kotlinOptions.jvmTarget = "17"
-        }
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
     androidTarget {
-        compilations.all {
-            kotlinOptions.jvmTarget = "17"
-        }
+        compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
 
     sourceSets {
@@ -26,11 +25,14 @@ kotlin {
                 // kotlinx-datetime.Clock leaks through AppState's public constructor default.
                 api(libs.kotlinx.datetime)
                 implementation(libs.kotlinx.coroutines.core)
-                implementation(compose.runtime)
-                implementation(compose.foundation)
-                implementation(compose.material3)
-                implementation(compose.materialIconsExtended)
-                implementation(compose.ui)
+                implementation(libs.kotlinx.serialization.json)
+                // Compose deps are api so downstream apps (notably :androidApp's autofill
+                // activity) can write Compose UIs without redeclaring every artifact.
+                api(compose.runtime)
+                api(compose.foundation)
+                api(compose.material3)
+                api(compose.materialIconsExtended)
+                api(compose.ui)
             }
         }
         val jvmAndAndroidMain by creating {
@@ -38,9 +40,18 @@ kotlin {
         }
         val jvmMain by getting {
             dependsOn(jvmAndAndroidMain)
+            dependencies {
+                // JNA + JNA-Platform expose Crypt32 (DPAPI) on Windows for biometric/convenience unlock.
+                implementation(libs.jna)
+                implementation(libs.jna.platform)
+            }
         }
         val androidMain by getting {
             dependsOn(jvmAndAndroidMain)
+            dependencies {
+                // BiometricPrompt + CryptoObject for Android biometric unlock.
+                implementation(libs.androidx.biometric)
+            }
         }
     }
 }

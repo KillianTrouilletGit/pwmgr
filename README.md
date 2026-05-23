@@ -1,66 +1,157 @@
 # PasswordManagerMultiplatform
 
-A multiplatform password manager for Windows and Android. Zero-knowledge encryption with a master password, optional biometric unlock, and an encrypted vault synced via Google Drive. Portfolio project — code is open for review.
+A zero-knowledge password manager for Windows and Android. Single master password, optional biometric unlock, encrypted vault synced via Google Drive, autofill on both platforms. Built as a portfolio project — the code is open for review and every architectural decision is documented.
 
-> **Status:** Phase 5a — Desktop Google Drive sync (OAuth PKCE, encrypted-blob upload, 3-way merge with tombstones). Android Drive sync = Phase 5b.
+> **Status:** Phase 10 — Release-ready. Signed builds, threat model, export, polish. See [Roadmap](#roadmap) for what's intentionally still ahead.
+
+---
+
+## Why this exists
+
+I wanted a password manager I could trust without paying a subscription, that worked on the two devices I actually use (Windows desktop, Android phone), and that I could audit end to end. Building one was a forcing function to learn Kotlin Multiplatform, Compose Multiplatform, Android autofill, browser-extension native messaging, and the OAuth + Drive API stack.
+
+Every primitive choice is justified in [docs/CRYPTO.md](docs/CRYPTO.md). Every trade-off is enumerated in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Nothing is hand-waved.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   Kotlin Multiplatform monorepo                     │
+│                                                                     │
+│  :shared:crypto        Argon2id, AES-256-GCM, HMAC-SHA1, CSPRNG     │
+│  :shared:core          Vault format, canonical JSON, TOTP, models   │
+│  :shared:storage       Drive REST, OAuth, sync engine, merge        │
+│  :shared:ui            Compose screens + AppState + settings        │
+│                                                                     │
+│  :androidApp           MainActivity, AutofillService, BiometricGate │
+│  :desktopApp           Compose Desktop, IPC server, ExtensionInst.  │
+│  :nativeHost           Browser stdio ↔ TCP relay (tiny jar)         │
+└─────────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ chrome native messaging (per-user)
+                              │
+                  ┌───────────────────────────┐
+                  │   browser-extension/      │
+                  │   MV3, Chromium + Edge    │
+                  └───────────────────────────┘
+
+                  Sync                         Autofill
+              ┌───────────┐              ┌─────────────────┐
+   Vault ←──→ │   Drive   │ ←──→ Vault   │  Android system │ ←──── Android
+              │  (appdata)│              │   AutofillSvc   │       app/browser
+              └───────────┘              └─────────────────┘
+                                                  +
+                                         ┌─────────────────┐
+                                         │ Chromium / Edge │ ←──── PC browser
+                                         │   extension     │
+                                         └─────────────────┘
+```
+
+| Module | Purpose |
+|---|---|
+| `:shared:crypto` | Argon2id KDF (BouncyCastle), AES-256-GCM AEAD (JCA), HMAC-SHA1 (TOTP only), CSPRNG. |
+| `:shared:core` | Vault file format (CRYPTO.md §4), canonical JSON for AAD, vault open/save logic, TOTP (RFC 6238), domain model (`VaultEntry`). |
+| `:shared:storage` | Drive REST client (`HttpURLConnection`), OAuth PKCE provider, encrypted token storage, 3-way merge engine. |
+| `:shared:ui` | Compose Multiplatform screens, `AppState`, settings persistence, biometric gate, clipboard auto-clear. |
+| `:androidApp` | Android entry, `AutofillService`, `BiometricPrompt` via Keystore. R8-shrunk release. |
+| `:desktopApp` | Compose Desktop window, local IPC server (127.0.0.1, HMAC-token-authed), DPAPI convenience unlock, extension installer. |
+| `:nativeHost` | ~150 LOC bridge: browser length-prefixed stdio ↔ desktop TCP. |
+| `browser-extension/` | MV3 extension: content-script icon, popup, native-messaging client (TypeScript + Vite). |
+
+---
 
 ## Documentation
 
-- **[docs/CRYPTO.md](docs/CRYPTO.md)** — the normative cryptographic specification. Read this before reading the code.
-- **[docs/BUILD.md](docs/BUILD.md)** — toolchain prerequisites and how to bootstrap the Gradle wrapper.
-- **[docs/DRIVE-SETUP.md](docs/DRIVE-SETUP.md)** — Google Cloud project + OAuth credentials setup (~10 min, one-time).
+Read these in order:
 
-## Modules
+1. **[docs/CRYPTO.md](docs/CRYPTO.md)** — normative cryptographic specification. The code conforms to this document; if they disagree, the document is correct.
+2. **[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)** — what we defend against, what we don't, and where each line is drawn.
+3. **[docs/BUILD.md](docs/BUILD.md)** — toolchain prerequisites and wrapper bootstrap.
 
-| Module | Purpose | Phase 1 |
-|---|---|---|
-| `:shared:crypto` | Argon2id KDF, AES-256-GCM AEAD, CSPRNG — expect/actual API. | ✅ |
-| `:shared:core`   | Vault file format, canonical JSON for AEAD AAD, vault open/save logic, domain model (`VaultEntry`). | ✅ |
-| `:shared:storage` | Google Drive REST client, OAuth, token storage, merge engine. | ✅ desktop · ⏳ Android OAuth (Phase 5b) |
-| `:shared:ui`     | Compose Multiplatform screens + AppState shared across Android + desktop. | ✅ |
-| `:androidApp`    | Android entry (`MainActivity`); `AutofillService`, `BiometricPrompt` later. | ✅ shell · ⏳ biometric (Phase 6), autofill (Phase 7) |
-| `:desktopApp`    | Windows entry (Compose Desktop); system tray, Windows Hello, native messaging host later. | ✅ shell · ⏳ Win Hello (Phase 6), native messaging (Phase 8) |
-| `browser-extension/` | MV3 extension (Chromium + Firefox) — fills login forms via native messaging. | ⏳ Phase 8 |
+Operational guides:
 
-Phase ordering and full architecture: see the plan at `~/.claude/plans/i-want-to-do-nested-fountain.md` (local to this development environment).
+- **[docs/DRIVE-SETUP.md](docs/DRIVE-SETUP.md)** — Google Cloud + OAuth credentials (~10 min, one-time).
+- **[docs/AUTOFILL.md](docs/AUTOFILL.md)** — enable PwMgr's Android autofill, how matching works.
+- **[docs/EXTENSION-SETUP.md](docs/EXTENSION-SETUP.md)** — build and install the browser extension.
+- **[docs/RELEASE.md](docs/RELEASE.md)** — sign releases (APK, MSI, packed extension zip).
+
+---
 
 ## Quickstart
 
 ```powershell
-# Prereq: JDK 17 or 21, plus Android SDK 34 for the Android app. See docs/BUILD.md.
+# Prereq: JDK 17 or 21, Android SDK 34, Node 20+. See docs/BUILD.md.
 
-# Run the test suite (Phase 1)
-.\gradlew.bat :shared:crypto:jvmTest :shared:core:jvmTest
+# Run the full test suite (~1 minute on a warm cache)
+.\gradlew.bat :shared:crypto:jvmTest :shared:core:jvmTest :shared:storage:jvmTest :androidApp:testDebugUnitTest
 
 # Launch the desktop app
 .\gradlew.bat :desktopApp:run
 
-# Build + install the Android app on a connected device or emulator
+# Build + install the Android app
 .\gradlew.bat :androidApp:installDebug
+
+# Build the browser extension
+cd browser-extension && npm install && npm run build
 ```
 
-First launch shows the create-vault screen (no `vault.enc` on disk yet). After creating a vault you'll land on the empty vault list. Use **Add entry** to create logins / secure notes / cards / identities, with an inline password generator (configurable length and character classes). Clicking a row opens the editor with **Delete** in the top bar. Search filters by title, username, and URL. Subsequent launches go straight to the unlock prompt. The vault file lives at `%LOCALAPPDATA%\PwMgr\vault.enc` on Windows, or `~/PwMgr/vault.enc` elsewhere.
+First desktop launch: create-vault screen. Master password is 12 characters minimum, no recovery. Subsequent launches go to the unlock prompt.
 
-Five consecutive wrong-password attempts trigger exponential backoff (1s, 2s, 4s, 8s, … capped at 30s).
+---
 
-Every CRUD operation re-encrypts the payload under the existing vault key (fresh GCM nonce per save) and atomically replaces the on-disk file. The `revision` counter in the header increments on every save — visible in the list top bar.
+## Features
 
-The test suite covers:
-- AES-GCM round-trip + tamper detection (every byte position).
-- Argon2id parameter floor enforcement + determinism.
-- Canonical JSON golden vectors (used for AEAD AAD; must be byte-stable).
-- Full vault create → save → unlock round-trip.
-- Tamper rejection on every header field that's bound to the ciphertext: salt, memKiB, iter, par, wrap.ct, payload.ct.
-- Wrong-password rejection.
-- Unsupported version + below-floor params rejected at parse time.
+- **Zero-knowledge encryption.** Master password → Argon2id (64 MiB, t=3) → MK; MK unwraps a fresh random VK; VK encrypts payload with AES-256-GCM. See [CRYPTO.md §3](docs/CRYPTO.md#3-key-hierarchy).
+- **Tamper-evident.** Every header field that influences key derivation is AEAD-bound. Tests flip every byte position to prove rejection.
+- **Cross-device sync.** Drive `appDataFolder` (hidden private folder). Optimistic concurrency via ETags; conflicts resolved by per-entry LWW with 30-day tombstones.
+- **Biometric unlock.** Android: `BiometricPrompt` + Keystore (`setInvalidatedByBiometricEnrollment`). Windows: DPAPI convenience unlock (clearly labeled — see [CRYPTO.md §3.1](docs/CRYPTO.md#31-biometric--convenience-unlock-optional-per-device) for the honest comparison).
+- **Autofill.** Android `AutofillService` for apps + browsers; Chromium/Edge extension for desktop browsers. Cross-domain matching refuses suffix-without-dot collisions (regression test: `EntryMatcher.cross_domain_does_not_match`).
+- **TOTP codes.** Stored seed → rotating 6-digit codes, RFC 6238 vectors covered.
+- **Auto-lock + clipboard auto-clear.** Configurable timers; clipboard clear is conditional (won't overwrite a fresh user copy).
+- **Encrypted export.** Local `.enc` copy via the system file picker (desktop). Format is identical to the live vault — drop it back to restore.
 
-## What "secure" means here
+---
 
-See [CRYPTO.md §1](docs/CRYPTO.md#1-threat-model). Short version: the vault file is treated as fully public. An attacker who steals it should learn nothing without the master password. Tampering of any header field that affects the key derivation invalidates decryption.
+## Test coverage at a glance
 
-## What's intentionally NOT in v1
+| Module | What's tested |
+|---|---|
+| `:shared:crypto` | AES-GCM round-trip + every-byte-position tamper; Argon2 parameter floors; SecureRandom uniqueness smoke. |
+| `:shared:core`   | Vault create→save→unlock; tamper on `salt`, `memKiB`, `iter`, `par`, `wrap.ct`, `payload.ct`, `version`; CanonicalJson golden vectors; TOTP RFC 6238 Appendix B vectors. |
+| `:shared:storage` | Merge: LWW, tombstones (TTL + purge), disjoint sets, simultaneous edits, deterministic output ordering. |
+| `:androidApp`    | EntryMatcher: cross-domain rejection, subdomain matching both ways, package-token fallback, tombstone/login-type filters. |
 
-- **Recovery code.** Forget the master password → vault is gone. Documented in the spec.
-- **Auto-lock by timer.** Recommended for a security tool; will be added in Phase 9 (polish). Tracking issue: TBD.
-- **Forward secrecy across vault revisions.** The vault is a mutable blob.
-- **Padding to hide vault size.** Not meaningfully exploitable at expected sizes; could revisit in format v2.
+---
+
+## Roadmap
+
+What's still intentionally ahead, by likely effort:
+
+- **Phase 5b — Android Drive sync.** Replace the `AndroidOAuth` stub with Credential Manager + `AuthorizationClient`. Same `SyncEngine` runs unchanged.
+- **Windows Hello.** Replace DPAPI with WinRT `KeyCredentialManager` for true biometric gating. WinRT JVM bindings are the gnarly part.
+- **Firefox extension.** Same code, different registry path + manifest extension. ~half a day.
+- **Autofill save-on-submit.** Capture new credentials from form submissions. Both Android (`onSaveRequest`) and the browser extension currently no-op.
+- **Android export.** `ActivityResultContracts.CreateDocument` flow + UI plumbing.
+- **Inline suggestions on Android 11+.** `InlinePresentation` keyboard chips.
+- **zxcvbn password strength meter** on create / generator.
+- **Recovery code (optional)** — emergency printable code that wraps VK with a separate KDF lineage.
+
+---
+
+## Screenshots
+
+> Capture targets: create-vault, vault list, entry editor (with TOTP), unlock with biometric prompt, settings, Drive setup, browser extension popup. Add under `docs/images/` referenced from here once captured.
+
+---
+
+## License
+
+MIT (or substitute your preferred license).
+
+---
+
+## Acknowledgements
+
+Stands on the shoulders of: BouncyCastle (Argon2), JetBrains (Kotlin Multiplatform + Compose), Google (Drive API + Android Autofill + Material 3), and every open-source password manager that came before — Bitwarden's threat model in particular is the standard everyone is measured against.

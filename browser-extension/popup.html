@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PwMgr</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 320px; font-family: system-ui, -apple-system, sans-serif; background: #fff; color: #111827; }
+    header { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; }
+    h1 { margin: 0; font-size: 14px; font-weight: 600; }
+    .status { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+    .status-ok { background: #dcfce7; color: #166534; }
+    .status-locked { background: #fef3c7; color: #92400e; }
+    .status-err { background: #fee2e2; color: #991b1b; }
+    main { padding: 8px 0; max-height: 360px; overflow-y: auto; }
+    .empty { padding: 24px 14px; color: #6b7280; font-size: 13px; text-align: center; }
+    .entry { display: block; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid #f3f4f6; background: transparent; cursor: pointer; text-align: left; font-family: inherit; }
+    .entry:hover { background: #f9fafb; }
+    .entry-title { font-size: 13px; font-weight: 500; color: #111827; }
+    .entry-username { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    footer { padding: 8px 14px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PwMgr</h1>
+    <span id="status" class="status status-err">…</span>
+  </header>
+  <main id="entries">
+    <div class="empty">Loading…</div>
+  </main>
+  <footer id="footer">Click an entry to copy its password.</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

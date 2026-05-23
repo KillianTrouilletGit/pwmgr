@@ -125,6 +125,40 @@ object VaultFile {
     }
 
     /**
+     * Opens a vault using a directly-supplied Vault Key (i.e., obtained from biometric unlock),
+     * skipping Argon2id and wrap.ct decryption entirely. Returns the same [UnlockResult] as
+     * password-based [unlock] would, with a fresh [VaultSession] holding the VK.
+     *
+     * The caller is responsible for source-of-VK trust: typically [vaultKey] came back from
+     * a hardware-gated biometric flow that proves user presence.
+     *
+     * @throws CorruptVaultException if the VK can't decrypt the payload (vault may have been
+     *   re-encrypted under a new password on another device — user must re-enter master password)
+     */
+    fun unlockWithVaultKey(fileBytes: ByteArray, vaultKey: ByteArray): UnlockResult {
+        val dto = parseAndValidate(fileBytes)
+        val payloadNonce = Base64.decode(dto.payload.nonce)
+        val payloadCt = Base64.decode(dto.payload.ct)
+        val aad = computeAad(dto.version, dto.kdf)
+        val plaintext = try {
+            Aead.decrypt(vaultKey, payloadNonce, payloadCt, aad)
+        } catch (e: AeadAuthenticationException) {
+            throw CorruptVaultException(
+                "Biometric VK does not match this vault. The master password may have been changed elsewhere — re-enter the current password.",
+                e,
+            )
+        }
+        val payload = try {
+            json.decodeFromString(VaultPayload.serializer(), plaintext.decodeToString())
+        } catch (e: Throwable) {
+            plaintext.zeroize()
+            throw CorruptVaultException("payload JSON is malformed", e)
+        }
+        plaintext.zeroize()
+        return UnlockResult(VaultSession(vaultKey.copyOf(), dto), payload)
+    }
+
+    /**
      * Decrypts a remote vault file using an already-unlocked Vault Key, skipping master-password
      * derivation entirely. Used by the sync engine to read a remote vault without prompting
      * the user again.
