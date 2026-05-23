@@ -1,6 +1,11 @@
 /**
  * Wire types shared with the PwMgr desktop IPC server. Kept in sync by hand with
  * `desktopApp/src/jvmMain/kotlin/com/pwmgr/desktop/ipc/IpcProtocol.kt`.
+ *
+ * IMPORTANT: this file is intentionally type-only (no runtime exports). Mixing types and
+ * runtime values here forces Rollup to emit a shared chunk between background / content /
+ * popup, which is incompatible with IIFE output. Anything runtime-needed lives in the
+ * specific entry file that needs it (currently just NATIVE_HOST_NAME in background.ts).
  */
 
 export type IpcRequest =
@@ -23,5 +28,3 @@ export type BgRequest =
   | { target: "background"; op: "status" }
   | { target: "background"; op: "match"; params: { host: string } }
   | { target: "background"; op: "reveal"; params: { entryId: string } };
-
-export const NATIVE_HOST_NAME = "com.pwmgr.host";

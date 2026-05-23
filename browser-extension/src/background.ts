@@ -15,7 +15,9 @@
  * recreated on demand whenever Chrome wakes the worker back up.
  */
 
-import { type IpcResponse, type BgRequest, NATIVE_HOST_NAME } from "./types";
+import type { IpcResponse, BgRequest } from "./types";
+
+const NATIVE_HOST_NAME = "com.pwmgr.host";
 
 let port: chrome.runtime.Port | null = null;
 let nextId = 1;

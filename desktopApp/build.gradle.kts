@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.compose.multiplatform)
 }
@@ -17,6 +18,8 @@ kotlin {
             dependencies {
                 implementation(project(":shared:ui"))
                 implementation(compose.desktop.currentOs)
+                // @Serializable / Json used by HandshakeFile + ExtensionInstaller + DesktopOAuth.
+                implementation(libs.kotlinx.serialization.json)
             }
         }
     }

@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Companion browser extension for PwMgr — autofills credentials from the desktop vault.",
+  "type": "module",
   "scripts": {
-    "build": "vite build",
-    "watch": "vite build --watch",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

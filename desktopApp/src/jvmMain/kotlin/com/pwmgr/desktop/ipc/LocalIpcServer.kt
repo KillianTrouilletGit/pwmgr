@@ -8,10 +8,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -74,40 +75,40 @@ class LocalIpcServer(
             val writer = OutputStreamWriter(sock.getOutputStream(), StandardCharsets.UTF_8)
             var authenticated = false
             while (true) {
-                val line = try {
-                    reader.readLine() ?: return
-                } catch (_: IOException) {
-                    return
-                }
+                val line = readLineSafe(reader) ?: return
                 if (line.isBlank()) continue
-                val response = try {
-                    val obj = json.parseToJsonElement(line) as? JsonObject
-                        ?: return@try error(0, IpcErrors.BAD_REQUEST, "not a JSON object")
-                    val op = obj["op"]?.jsonPrimitive?.contentOrNullSafe()
-                        ?: return@try error(0, IpcErrors.BAD_REQUEST, "missing 'op'")
-                    if (op == "auth") {
-                        val token = obj["token"]?.jsonPrimitive?.contentOrNullSafe()
-                        if (token != expectedToken) {
-                            // Reply once, then close.
-                            writer.writeLineFlushed(error(0, IpcErrors.BAD_AUTH, "invalid token"))
-                            return
-                        }
-                        authenticated = true
-                        buildJsonObject {
-                            put("id", JsonPrimitive(0))
-                            put("op", JsonPrimitive("auth_ok"))
-                        }.toString()
-                    } else if (!authenticated) {
-                        error(idOf(obj), IpcErrors.BAD_AUTH, "auth required")
-                    } else {
-                        dispatch(op, obj)
-                    }
-                } catch (t: Throwable) {
-                    error(0, IpcErrors.INTERNAL, t.message ?: t::class.simpleName.orEmpty())
-                }
-                writer.writeLineFlushed(response)
+                val response = handleLine(line, authenticated) { authenticated = true }
+                writeLine(writer, response)
+                // After a failed auth we close the connection — the peer must reconnect.
+                if (!authenticated && response.contains("\"bad_auth\"")) return
             }
         }
+    }
+
+    private fun handleLine(line: String, authenticated: Boolean, markAuthed: () -> Unit): String {
+        val obj = parseObject(line)
+            ?: return errResp(0L, IpcErrors.BAD_REQUEST, "not a JSON object")
+
+        val op = obj.stringField("op")
+            ?: return errResp(idOf(obj), IpcErrors.BAD_REQUEST, "missing 'op'")
+
+        return when {
+            op == "auth" -> handleAuth(obj, markAuthed)
+            !authenticated -> errResp(idOf(obj), IpcErrors.BAD_AUTH, "auth required")
+            else -> dispatch(op, obj)
+        }
+    }
+
+    private fun handleAuth(obj: JsonObject, markAuthed: () -> Unit): String {
+        val token = obj.stringField("token")
+        if (token != expectedToken) {
+            return errResp(0L, IpcErrors.BAD_AUTH, "invalid token")
+        }
+        markAuthed()
+        return buildJsonObject {
+            put("id", JsonPrimitive(0))
+            put("op", JsonPrimitive("auth_ok"))
+        }.toString()
     }
 
     private fun dispatch(op: String, obj: JsonObject): String {
@@ -125,22 +126,21 @@ class LocalIpcServer(
             }.toString()
 
             "match" -> {
-                if (!handler.isUnlocked()) return error(id, IpcErrors.LOCKED, "vault is locked")
-                val host = obj["host"]?.jsonPrimitive?.contentOrNullSafe()
-                    ?: return error(id, IpcErrors.BAD_REQUEST, "missing 'host'")
-                val candidates = handler.match(host)
+                if (!handler.isUnlocked()) return errResp(id, IpcErrors.LOCKED, "vault is locked")
+                val host = obj.stringField("host")
+                    ?: return errResp(id, IpcErrors.BAD_REQUEST, "missing 'host'")
                 buildJsonObject {
                     put("id", JsonPrimitive(id))
                     put("op", JsonPrimitive("match_ok"))
                     put(
                         "candidates",
-                        kotlinx.serialization.json.buildJsonArray {
-                            for (c in candidates) {
+                        buildJsonArray {
+                            for (c in handler.match(host)) {
                                 add(
                                     buildJsonObject {
                                         put("id", JsonPrimitive(c.id))
                                         put("title", JsonPrimitive(c.title))
-                                        put("username", c.username?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+                                        put("username", c.username?.let { JsonPrimitive(it) } ?: JsonNull)
                                     },
                                 )
                             }
@@ -150,27 +150,25 @@ class LocalIpcServer(
             }
 
             "reveal" -> {
-                if (!handler.isUnlocked()) return error(id, IpcErrors.LOCKED, "vault is locked")
-                val entryId = obj["entryId"]?.jsonPrimitive?.contentOrNullSafe()
-                    ?: return error(id, IpcErrors.BAD_REQUEST, "missing 'entryId'")
+                if (!handler.isUnlocked()) return errResp(id, IpcErrors.LOCKED, "vault is locked")
+                val entryId = obj.stringField("entryId")
+                    ?: return errResp(id, IpcErrors.BAD_REQUEST, "missing 'entryId'")
                 val revealed = handler.reveal(entryId)
-                    ?: return error(id, IpcErrors.UNKNOWN_ENTRY, "no entry with id=$entryId")
+                    ?: return errResp(id, IpcErrors.UNKNOWN_ENTRY, "no entry with id=$entryId")
                 buildJsonObject {
                     put("id", JsonPrimitive(id))
                     put("op", JsonPrimitive("reveal_ok"))
-                    put("username", revealed.first?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+                    put("username", revealed.first?.let { JsonPrimitive(it) } ?: JsonNull)
                     put("password", JsonPrimitive(revealed.second))
                 }.toString()
             }
 
-            else -> error(id, IpcErrors.BAD_REQUEST, "unknown op '$op'")
+            else -> errResp(id, IpcErrors.BAD_REQUEST, "unknown op '$op'")
         }
     }
 
-    private fun idOf(obj: JsonObject): Long =
-        obj["id"]?.jsonPrimitive?.contentOrNullSafe()?.toLongOrNull() ?: 0L
-
-    private fun error(id: Long, code: String, message: String): String =
+    /** Renamed away from `error` to avoid colliding with Kotlin's built-in `error(Any): Nothing`. */
+    private fun errResp(id: Long, code: String, message: String): String =
         buildJsonObject {
             put("id", JsonPrimitive(id))
             put("op", JsonPrimitive("error"))
@@ -178,17 +176,40 @@ class LocalIpcServer(
             put("message", JsonPrimitive(message))
         }.toString()
 
-    private fun OutputStreamWriter.writeLineFlushed(s: String) {
-        write(s)
-        write("\n")
-        flush()
+    private fun parseObject(line: String): JsonObject? = try {
+        json.parseToJsonElement(line) as? JsonObject
+    } catch (_: Throwable) {
+        null
     }
 
-    private fun JsonPrimitive.contentOrNullSafe(): String? = if (this.isString) this.content else this.contentOrNull()
-    private fun JsonPrimitive.contentOrNull(): String? = try { content } catch (_: Throwable) { null }
+    private fun JsonObject.stringField(name: String): String? {
+        val element = this[name] as? JsonPrimitive ?: return null
+        return if (element.isString) element.content else null
+    }
+
+    private fun idOf(obj: JsonObject): Long {
+        val element = obj["id"] as? JsonPrimitive ?: return 0L
+        return element.content.toLongOrNull() ?: 0L
+    }
+
+    private fun readLineSafe(reader: BufferedReader): String? = try {
+        reader.readLine()
+    } catch (_: IOException) {
+        null
+    }
+
+    private fun writeLine(writer: OutputStreamWriter, s: String) {
+        try {
+            writer.write(s)
+            writer.write("\n")
+            writer.flush()
+        } catch (_: IOException) {
+            // Peer hung up; the outer loop will end on the next failed read.
+        }
+    }
 
     companion object {
-        private const val CLIENT_TIMEOUT_MS = 30_000  // generous; one request rarely takes this long
+        private const val CLIENT_TIMEOUT_MS = 30_000
         private val json = Json { ignoreUnknownKeys = true }
     }
 }

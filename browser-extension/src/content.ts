@@ -10,7 +10,7 @@
  * heuristically pick the nearest preceding text/email input as the username field.
  */
 
-import { type BgRequest, type IpcCandidate, type IpcResponse } from "./types";
+import type { BgRequest, IpcCandidate, IpcResponse } from "./types";
 
 const HOST = location.hostname;
 const PROCESSED = new WeakSet<HTMLInputElement>();

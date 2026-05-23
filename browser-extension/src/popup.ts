@@ -8,7 +8,7 @@
  * to inspect what the extension thinks it has for the current site.
  */
 
-import { type BgRequest, type IpcCandidate, type IpcResponse } from "./types";
+import type { BgRequest, IpcCandidate, IpcResponse } from "./types";
 
 const statusEl = document.getElementById("status") as HTMLSpanElement;
 const entriesEl = document.getElementById("entries") as HTMLDivElement;
