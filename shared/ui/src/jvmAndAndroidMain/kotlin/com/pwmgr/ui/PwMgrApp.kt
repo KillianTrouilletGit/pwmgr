@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import com.pwmgr.ui.screens.CreateVaultScreen
 import com.pwmgr.ui.screens.DriveSetupScreen
 import com.pwmgr.ui.screens.EntryEditorScreen
+import com.pwmgr.ui.screens.RecoveryCodeDisplayScreen
+import com.pwmgr.ui.screens.RecoveryScreen
 import com.pwmgr.ui.screens.SettingsScreen
 import com.pwmgr.ui.screens.UnlockScreen
 import com.pwmgr.ui.screens.VaultListScreen
@@ -73,6 +75,8 @@ fun PwMgrApp(
                     is Screen.EntryEditor -> EntryEditorScreen(state, current.entryId)
                     Screen.DriveSetup -> DriveSetupScreen(state)
                     Screen.Settings -> SettingsScreen(state)
+                    Screen.RecoveryCodeDisplay -> RecoveryCodeDisplayScreen(state)
+                    Screen.Recovery -> RecoveryScreen(state)
                     else -> if (!extraRoute(current)) NotAvailableOnThisPlatform()
                 }
             }

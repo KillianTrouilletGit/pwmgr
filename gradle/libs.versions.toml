@@ -12,6 +12,7 @@ androidx-core-ktx = "1.13.1"
 androidx-lifecycle = "2.8.7"
 androidx-biometric = "1.2.0-alpha05"
 androidx-browser = "1.8.0"
+zxcvbn = "1.9.0"
 jna = "5.14.0"
 
 [libraries]
@@ -27,6 +28,7 @@ androidx-core-ktx          = { module = "androidx.core:core-ktx", version.ref = 
 androidx-lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle" }
 androidx-biometric         = { module = "androidx.biometric:biometric-ktx", version.ref = "androidx-biometric" }
 androidx-browser           = { module = "androidx.browser:browser", version.ref = "androidx-browser" }
+zxcvbn                     = { module = "com.nulab-inc:zxcvbn", version.ref = "zxcvbn" }
 androidx-fragment-ktx      = { module = "androidx.fragment:fragment-ktx", version = "1.8.5" }
 jna                        = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 jna-platform               = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }

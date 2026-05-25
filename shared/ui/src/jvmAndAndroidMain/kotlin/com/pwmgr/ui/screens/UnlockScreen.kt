@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -166,7 +167,12 @@ fun UnlockScreen(state: AppState) {
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
+            TextButton(onClick = { state.openRecovery() }) {
+                Text("Forgot master password?")
+            }
+
+            Spacer(Modifier.height(4.dp))
             Text(
                 "Vault: ${state.storage.displayPath}",
                 style = MaterialTheme.typography.bodySmall,

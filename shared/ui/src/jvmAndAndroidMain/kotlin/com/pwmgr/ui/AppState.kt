@@ -40,6 +40,10 @@ sealed interface Screen {
     data class EntryEditor(val entryId: String?) : Screen
     data object DriveSetup : Screen
     data object Settings : Screen
+    /** Shown once after vault creation OR after recovery to display the recovery code. */
+    data object RecoveryCodeDisplay : Screen
+    /** Forgot-master-password flow: accepts recovery code + new master password. */
+    data object Recovery : Screen
     /** Windows-only — rendered by the platform via [PwMgrApp]'s `extraRoute` slot. */
     data object BrowserExtension : Screen
 }
@@ -129,6 +133,67 @@ class AppState(
     private var lastActivityMs: Long = clock.now().toEpochMilliseconds()
     private var autoLockJob: Job? = null
 
+    /**
+     * The recovery code freshly generated at vault creation OR after a successful recovery.
+     * Shown to the user once via [Screen.RecoveryCodeDisplay], then cleared. Never persisted
+     * anywhere — losing this BEFORE acknowledging it = losing it forever.
+     */
+    var pendingRecoveryCode: String? by mutableStateOf(null)
+        private set
+
+    fun acknowledgeRecoveryCode() {
+        pendingRecoveryCode = null
+        screen = Screen.VaultList
+    }
+
+    /**
+     * Recovers a forgotten master password using the recovery code shown at vault creation.
+     * On success: VK is in memory, vault list is shown, a NEW recovery code is generated
+     * and displayed via [Screen.RecoveryCodeDisplay] (the old one is invalidated by the
+     * re-wrap). Returns failure if the recovery code is wrong or the vault has no recovery
+     * block (older vault from before recovery was added).
+     */
+    fun recoverWithCode(recoveryCode: String, newPassword: CharArray): Result<Unit> {
+        busy = true
+        return try {
+            val bytes = storage.read()
+            val res = VaultFile.recoverWithCode(
+                fileBytes = bytes,
+                recoveryCode = recoveryCode.trim().uppercase(),
+                newPassword = newPassword,
+                deviceId = Uuid.random().toString(),
+                nowIso = nowIso(),
+            )
+            storage.write(res.fileBytes)
+            session = res.session
+            payload = VaultFile.decryptWithVaultKey(res.fileBytes, res.session.vaultKey)
+            pendingRecoveryCode = res.recoveryCode
+            screen = Screen.RecoveryCodeDisplay
+            unlockError = null
+            consecutiveFailures = 0
+            lockedOutUntilEpochMs = 0
+            requireExplicitUnlock = false
+            evaluateSyncState()
+            startAutoLockWatcher()
+            Result.success(Unit)
+        } catch (e: WrongPasswordException) {
+            unlockError = "Recovery code is invalid."
+            Result.failure(e)
+        } catch (e: InvalidVaultFormatException) {
+            unlockError = "This vault was created before recovery codes existed and cannot be recovered."
+            Result.failure(e)
+        } catch (e: Throwable) {
+            unlockError = e.message ?: "Recovery failed."
+            Result.failure(e)
+        } finally {
+            newPassword.zeroize()
+            busy = false
+        }
+    }
+
+    fun openRecovery() { screen = Screen.Recovery }
+    fun closeRecovery() { screen = Screen.Unlock }
+
     init {
         // Probe biometric hardware availability asynchronously — the call may touch the OS
         // crypto stack (DPAPI on Windows, BiometricManager on Android) which we don't want
@@ -151,7 +216,8 @@ class AppState(
             storage.write(res.fileBytes)
             session = res.session
             payload = VaultPayload()
-            screen = Screen.VaultList
+            pendingRecoveryCode = res.recoveryCode
+            screen = Screen.RecoveryCodeDisplay
             unlockError = null
             evaluateSyncState()
             startAutoLockWatcher()

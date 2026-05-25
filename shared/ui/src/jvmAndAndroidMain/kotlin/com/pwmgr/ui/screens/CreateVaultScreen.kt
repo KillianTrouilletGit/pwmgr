@@ -33,6 +33,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pwmgr.ui.AppState
+import com.pwmgr.ui.PasswordStrength
+import com.pwmgr.ui.PasswordStrengthBar
 
 private const val MIN_PASSWORD_LEN = 12
 
@@ -79,6 +81,11 @@ fun CreateVaultScreen(state: AppState) {
                 supportingText = { Text("$MIN_PASSWORD_LEN characters minimum") },
                 modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth().focusRequester(passwordFocus),
             )
+            Spacer(Modifier.height(6.dp))
+            PasswordStrengthBar(
+                password = password,
+                modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth(),
+            )
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = confirm,
@@ -96,8 +103,12 @@ fun CreateVaultScreen(state: AppState) {
             }
 
             Spacer(Modifier.height(24.dp))
+            val strongEnough = PasswordStrength.score(password) >= PasswordStrength.MIN_ACCEPTABLE_SCORE
             Button(
-                enabled = !state.busy && password.length >= MIN_PASSWORD_LEN && password == confirm,
+                enabled = !state.busy
+                    && password.length >= MIN_PASSWORD_LEN
+                    && password == confirm
+                    && strongEnough,
                 onClick = {
                     val pw = password.toCharArray()
                     password = ""
@@ -107,6 +118,14 @@ fun CreateVaultScreen(state: AppState) {
                 },
             ) {
                 Text(if (state.busy) "Creating…" else "Create vault")
+            }
+            if (password.length >= MIN_PASSWORD_LEN && password == confirm && !strongEnough) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Password is too weak. Add length, mix character classes, or pick something less predictable.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
 
             Spacer(Modifier.height(16.dp))

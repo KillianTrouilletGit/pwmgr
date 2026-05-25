@@ -6,6 +6,7 @@ import com.pwmgr.core.format.CanonicalJson
 import com.pwmgr.core.format.CURRENT_VAULT_VERSION
 import com.pwmgr.core.format.KDF_ALGO_ARGON2ID
 import com.pwmgr.core.format.KdfParams
+import com.pwmgr.core.format.RecoveryBlock
 import com.pwmgr.core.format.VaultFileDto
 import com.pwmgr.core.format.VaultMeta
 import com.pwmgr.core.model.VaultPayload
@@ -36,12 +37,20 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 object VaultFile {
 
     private val json = Json {
-        ignoreUnknownKeys = false       // strict at top level (see CRYPTO.md §4.3)
+        // Relaxed: tolerate unknown top-level fields so older code can still parse newer
+        // vaults (forward-compat). Strict enforcement of known fields and version is done
+        // explicitly in parseAndValidate; AEAD AAD-binding still catches tampering of the
+        // fields that matter for confidentiality / integrity.
+        ignoreUnknownKeys = true
         prettyPrint = false
         encodeDefaults = true
     }
 
-    /** Builds a new vault file from the given password and returns the serialized JSON bytes. */
+    /**
+     * Builds a new vault file from the given password and returns the serialized JSON bytes,
+     * the in-memory session, and a freshly-generated recovery code the caller MUST show to
+     * the user exactly once. Losing both master password and recovery code = vault is gone.
+     */
     fun create(
         password: CharArray,
         deviceId: String,
@@ -59,9 +68,20 @@ object VaultFile {
         val wrapNonce = secureRandomBytes(Aead.NONCE_BYTES)
         val payloadNonce = secureRandomBytes(Aead.NONCE_BYTES)
 
+        // Recovery code: a fresh independent KDF lineage. We use the SAME Argon2id parameters
+        // as the master-password path (memory-hard makes brute-force impractical even if the
+        // attacker steals the vault file), with its own random salt.
+        val recoveryCode = generateRecoveryCode()
+        val recoverySalt = secureRandomBytes(Kdf.SALT_BYTES)
+        val recoveryKdfParams = KdfParams(KDF_ALGO_ARGON2ID, Base64.encode(recoverySalt), memKiB, iterations, parallelism)
+        val recoveryWrapNonce = secureRandomBytes(Aead.NONCE_BYTES)
+
         val mk = Kdf.derive(password, salt, memKiB, iterations, parallelism)
+        val recoveryKey = Kdf.derive(recoveryCode.toCharArray(), recoverySalt, memKiB, iterations, parallelism)
         try {
             val wrapCt = Aead.encrypt(mk, wrapNonce, vk, aad)
+            val recoveryAad = computeAad(CURRENT_VAULT_VERSION, recoveryKdfParams)
+            val recoveryWrapCt = Aead.encrypt(recoveryKey, recoveryWrapNonce, vk, recoveryAad)
             val emptyPayload = json.encodeToString(VaultPayload.serializer(), VaultPayload()).encodeToByteArray()
             val payloadCt = Aead.encrypt(vk, payloadNonce, emptyPayload, aad)
 
@@ -71,13 +91,159 @@ object VaultFile {
                 wrap = AeadBlob(AEAD_ALG_AES256_GCM, Base64.encode(wrapNonce), Base64.encode(wrapCt)),
                 payload = AeadBlob(AEAD_ALG_AES256_GCM, Base64.encode(payloadNonce), Base64.encode(payloadCt)),
                 meta = meta,
+                recovery = RecoveryBlock(
+                    kdf = recoveryKdfParams,
+                    wrap = AeadBlob(AEAD_ALG_AES256_GCM, Base64.encode(recoveryWrapNonce), Base64.encode(recoveryWrapCt)),
+                ),
             )
             val bytes = json.encodeToString(VaultFileDto.serializer(), dto).encodeToByteArray()
-            return CreateResult(bytes, VaultSession(vk.copyOf(), dto))
+            return CreateResult(bytes, VaultSession(vk.copyOf(), dto), recoveryCode)
         } finally {
             mk.zeroize()
+            recoveryKey.zeroize()
             vk.zeroize()
         }
+    }
+
+    /**
+     * Recovers a vault when the master password is forgotten but the recovery code is known.
+     * Decrypts VK via the recovery wrap, derives a NEW MK from [newPassword], re-encrypts the
+     * main wrap under it. The payload and recovery block are unchanged — VK doesn't rotate.
+     *
+     * @return new serialized bytes (caller writes them to disk), the unlocked session, AND a
+     *   freshly-generated recovery code (the old one is invalidated by the new recovery wrap).
+     *
+     * @throws InvalidVaultFormatException if the file has no recovery block
+     * @throws WrongPasswordException if the recovery code is wrong
+     */
+    fun recoverWithCode(
+        fileBytes: ByteArray,
+        recoveryCode: String,
+        newPassword: CharArray,
+        deviceId: String,
+        nowIso: String,
+    ): CreateResult {
+        val dto = parseAndValidate(fileBytes)
+        val recovery = dto.recovery
+            ?: throw InvalidVaultFormatException("this vault has no recovery block; cannot recover without master password")
+        val recoverySalt = Base64.decode(recovery.kdf.salt)
+        val recoveryNonce = Base64.decode(recovery.wrap.nonce)
+        val recoveryCt = Base64.decode(recovery.wrap.ct)
+        val recoveryAad = computeAad(dto.version, recovery.kdf)
+
+        val recoveryKey = Kdf.derive(
+            recoveryCode.toCharArray(),
+            recoverySalt,
+            recovery.kdf.memKiB,
+            recovery.kdf.iterations,
+            recovery.kdf.parallelism,
+        )
+        val vk = try {
+            Aead.decrypt(recoveryKey, recoveryNonce, recoveryCt, recoveryAad)
+        } catch (e: AeadAuthenticationException) {
+            throw WrongPasswordException(e)
+        } finally {
+            recoveryKey.zeroize()
+        }
+
+        // VK in hand → re-wrap under a NEW master password (fresh salt + KDF lineage), and
+        // also rotate the recovery wrap so the OLD recovery code stops being valid.
+        val newSalt = secureRandomBytes(Kdf.SALT_BYTES)
+        val newKdfParams = KdfParams(
+            KDF_ALGO_ARGON2ID,
+            Base64.encode(newSalt),
+            recovery.kdf.memKiB,
+            recovery.kdf.iterations,
+            recovery.kdf.parallelism,
+        )
+        val newAad = computeAad(dto.version, newKdfParams)
+        val newWrapNonce = secureRandomBytes(Aead.NONCE_BYTES)
+
+        val newRecoveryCode = generateRecoveryCode()
+        val newRecoverySalt = secureRandomBytes(Kdf.SALT_BYTES)
+        val newRecoveryKdfParams = newKdfParams.copy(salt = Base64.encode(newRecoverySalt))
+        val newRecoveryWrapNonce = secureRandomBytes(Aead.NONCE_BYTES)
+
+        val newMk = Kdf.derive(newPassword, newSalt, newKdfParams.memKiB, newKdfParams.iterations, newKdfParams.parallelism)
+        val newRecoveryKey = Kdf.derive(
+            newRecoveryCode.toCharArray(),
+            newRecoverySalt,
+            newRecoveryKdfParams.memKiB,
+            newRecoveryKdfParams.iterations,
+            newRecoveryKdfParams.parallelism,
+        )
+        try {
+            val newWrapCt = Aead.encrypt(newMk, newWrapNonce, vk, newAad)
+            val newRecoveryAad = computeAad(dto.version, newRecoveryKdfParams)
+            val newRecoveryWrapCt = Aead.encrypt(newRecoveryKey, newRecoveryWrapNonce, vk, newRecoveryAad)
+
+            // Re-encrypt the existing payload under the NEW AAD (kdf changed → AAD changed).
+            val payloadNonce = Base64.decode(dto.payload.nonce)
+            val payloadCt = Base64.decode(dto.payload.ct)
+            val oldAad = computeAad(dto.version, dto.kdf)
+            val plaintext = Aead.decrypt(vk, payloadNonce, payloadCt, oldAad)
+            val newPayloadNonce = secureRandomBytes(Aead.NONCE_BYTES)
+            val newPayloadCt = try {
+                Aead.encrypt(vk, newPayloadNonce, plaintext, newAad)
+            } finally {
+                plaintext.zeroize()
+            }
+
+            val newDto = VaultFileDto(
+                version = dto.version,
+                kdf = newKdfParams,
+                wrap = AeadBlob(AEAD_ALG_AES256_GCM, Base64.encode(newWrapNonce), Base64.encode(newWrapCt)),
+                payload = AeadBlob(AEAD_ALG_AES256_GCM, Base64.encode(newPayloadNonce), Base64.encode(newPayloadCt)),
+                meta = dto.meta.copy(
+                    revision = dto.meta.revision + 1,
+                    modifiedAt = nowIso,
+                    deviceId = deviceId,
+                ),
+                recovery = RecoveryBlock(
+                    kdf = newRecoveryKdfParams,
+                    wrap = AeadBlob(
+                        AEAD_ALG_AES256_GCM,
+                        Base64.encode(newRecoveryWrapNonce),
+                        Base64.encode(newRecoveryWrapCt),
+                    ),
+                ),
+            )
+            val newBytes = json.encodeToString(VaultFileDto.serializer(), newDto).encodeToByteArray()
+            return CreateResult(newBytes, VaultSession(vk.copyOf(), newDto), newRecoveryCode)
+        } finally {
+            newMk.zeroize()
+            newRecoveryKey.zeroize()
+            vk.zeroize()
+        }
+    }
+
+    /**
+     * Generates a recovery code as 6 groups of 4 base32 characters separated by hyphens:
+     * `JBSW-Y3DP-EHPK-3PXP-AB23-CDEF`. 24 characters of base32 = 120 bits of entropy, well
+     * above the 80-bit threshold for "Argon2id makes brute-force impossible at scale".
+     */
+    fun generateRecoveryCode(): String {
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // exclude I,O,0,1 to ease transcription
+        val bytes = secureRandomBytes(15)               // 120 bits
+        val sb = StringBuilder(29)
+        var buffer = 0
+        var bitsLeft = 0
+        var groupCounter = 0
+        for (b in bytes) {
+            buffer = (buffer shl 8) or (b.toInt() and 0xff)
+            bitsLeft += 8
+            while (bitsLeft >= 5) {
+                bitsLeft -= 5
+                val idx = (buffer ushr bitsLeft) and 0x1f
+                sb.append(alphabet[idx])
+                groupCounter++
+                if (groupCounter == 4 && sb.length < 29) {
+                    sb.append('-')
+                    groupCounter = 0
+                }
+            }
+        }
+        return sb.toString()
     }
 
     /**
@@ -288,7 +454,7 @@ class VaultSession internal constructor(
     }
 }
 
-class CreateResult(val fileBytes: ByteArray, val session: VaultSession)
+class CreateResult(val fileBytes: ByteArray, val session: VaultSession, val recoveryCode: String)
 
 data class UnlockResult(val session: VaultSession, val payload: VaultPayload)
 

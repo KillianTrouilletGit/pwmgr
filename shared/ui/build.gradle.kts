@@ -37,6 +37,10 @@ kotlin {
         }
         val jvmAndAndroidMain by creating {
             dependsOn(commonMain)
+            dependencies {
+                // Pure-Java password strength estimator (Java 8+). Shared across JVM + Android.
+                implementation(libs.zxcvbn)
+            }
         }
         val jvmMain by getting {
             dependsOn(jvmAndAndroidMain)

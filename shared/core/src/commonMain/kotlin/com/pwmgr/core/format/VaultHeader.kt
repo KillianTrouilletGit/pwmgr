@@ -14,6 +14,22 @@ data class VaultFileDto(
     val wrap: AeadBlob,
     val payload: AeadBlob,
     val meta: VaultMeta,
+    /**
+     * Optional recovery wrap of the Vault Key under a randomly-generated recovery code,
+     * derived through its own Argon2id lineage independent of the master password. When
+     * set, the user can recover their vault by entering the recovery code even if they
+     * forget the master password.
+     *
+     * Absent on vaults created before recovery codes were introduced; users can opt in
+     * after the fact via Settings.
+     */
+    val recovery: RecoveryBlock? = null,
+)
+
+@Serializable
+data class RecoveryBlock(
+    val kdf: KdfParams,             // Argon2id over the recovery code (separate salt + cost)
+    val wrap: AeadBlob,             // AES-256-GCM ciphertext of VK under the recovery-derived key
 )
 
 @Serializable
