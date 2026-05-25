@@ -39,6 +39,10 @@ kotlin {
         }
         val androidMain by getting {
             dependsOn(jvmAndAndroidMain)
+            dependencies {
+                // CustomTabsIntent for opening the OAuth authorization URL.
+                implementation(libs.androidx.browser)
+            }
         }
         val jvmTest by getting {
             dependencies {

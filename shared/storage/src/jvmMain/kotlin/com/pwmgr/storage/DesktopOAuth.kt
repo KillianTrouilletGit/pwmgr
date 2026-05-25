@@ -1,19 +1,13 @@
 package com.pwmgr.storage
 
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.awt.Desktop
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.InetSocketAddress
 import java.net.URI
-import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -22,8 +16,9 @@ import java.util.Base64
 
 /**
  * Desktop OAuth 2.0 flow with PKCE via a loopback redirect. We bring up a tiny HTTP server
- * on a free localhost port, open the system browser at Google's authorization URL, and wait
- * for the callback with the auth code. Token exchange happens server-to-server.
+ * on a free localhost port (via [LoopbackHttpResponder] — shared with Android), open the
+ * system browser at Google's authorization URL, and wait for the callback with the auth code.
+ * Token exchange happens server-to-server.
  *
  * The browser sees a static "you can close this tab" page after the callback.
  *
@@ -36,38 +31,20 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
         val challenge = sha256UrlEncoded(verifier)
         val state = randomToken(16)
 
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        val port = server.address.port
-        val redirectUri = "http://127.0.0.1:$port/callback"
-
-        val callbackFuture = CompletableDeferred<CallbackResult>()
-        server.createContext("/callback") { exchange ->
-            val params = parseQuery(exchange.requestURI.rawQuery.orEmpty())
-            val result = when {
-                params["error"] != null -> CallbackResult.Error(params["error"]!!, params["error_description"])
-                params["state"] != state -> CallbackResult.Error("state_mismatch", "CSRF state did not match")
-                params["code"] != null -> CallbackResult.Success(params["code"]!!)
-                else -> CallbackResult.Error("missing_code", "callback had neither error nor code")
-            }
-            respondHtml(exchange, result)
-            callbackFuture.complete(result)
-        }
-        server.start()
+        val responder = LoopbackHttpResponder()
+        responder.start()
+        val redirectUri = "http://127.0.0.1:${responder.port}/callback"
 
         try {
-            val authUrl = buildAuthUrl(redirectUri, challenge, state)
+            val authUrl = buildAuthUrl(config.clientId, redirectUri, challenge, state)
             openBrowser(authUrl)
-            val callback = try {
-                withTimeout(AUTH_TIMEOUT.toMillis()) { callbackFuture.await() }
-            } catch (e: Throwable) {
-                return@withContext null
-            }
-            when (callback) {
-                is CallbackResult.Error -> null
-                is CallbackResult.Success -> exchangeCodeForTokens(callback.code, verifier, redirectUri)
-            }
+            val params = responder.awaitCallback(AUTH_TIMEOUT.toMillis())
+                ?: return@withContext null
+            if (params["error"] != null || params["state"] != state) return@withContext null
+            val code = params["code"] ?: return@withContext null
+            exchangeCodeForTokens(code, verifier, redirectUri)
         } finally {
-            server.stop(0)
+            responder.close()
         }
     }
 
@@ -86,19 +63,6 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
         parsed.access_token
     }
 
-    private fun buildAuthUrl(redirectUri: String, challenge: String, state: String): String =
-        AUTH_URL + "?" + formEncode(
-            "client_id" to config.clientId,
-            "redirect_uri" to redirectUri,
-            "response_type" to "code",
-            "scope" to "https://www.googleapis.com/auth/drive.appdata openid email",
-            "access_type" to "offline",
-            "prompt" to "consent",
-            "state" to state,
-            "code_challenge" to challenge,
-            "code_challenge_method" to "S256",
-        )
-
     private fun exchangeCodeForTokens(code: String, verifier: String, redirectUri: String): OAuthAccount? {
         val body = formEncode(
             "client_id" to config.clientId,
@@ -112,7 +76,6 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
         if (response.status !in 200..299) return null
         val parsed = json.decodeFromString(TokenResponse.serializer(), response.body.decodeToString())
         val refreshToken = parsed.refresh_token ?: return null
-
         val email = parsed.id_token?.let { decodeEmailFromIdToken(it) }
         return OAuthAccount(
             refreshToken = refreshToken,
@@ -149,8 +112,7 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
                 Desktop.getDesktop().browse(URI(url))
                 return
             }
-        } catch (_: Throwable) { /* fall through */ }
-        // Fallback for systems without java.awt.Desktop support.
+        } catch (_: Throwable) { /* fall through to OS-specific exec */ }
         val os = System.getProperty("os.name").lowercase()
         val cmd = when {
             os.contains("win") -> arrayOf("rundll32", "url.dll,FileProtocolHandler", url)
@@ -158,22 +120,6 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
             else -> arrayOf("xdg-open", url)
         }
         Runtime.getRuntime().exec(cmd)
-    }
-
-    private fun respondHtml(exchange: HttpExchange, result: CallbackResult) {
-        val (status, html) = when (result) {
-            is CallbackResult.Success -> 200 to SUCCESS_HTML
-            is CallbackResult.Error -> 400 to errorHtml(result)
-        }
-        val bytes = html.encodeToByteArray()
-        exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
-        exchange.sendResponseHeaders(status, bytes.size.toLong())
-        exchange.responseBody.use { it.write(bytes) }
-    }
-
-    private sealed interface CallbackResult {
-        data class Success(val code: String) : CallbackResult
-        data class Error(val error: String, val description: String?) : CallbackResult
     }
 
     @Serializable
@@ -187,14 +133,12 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
     )
 
     companion object {
-        private const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
         private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
         private val AUTH_TIMEOUT: Duration = Duration.ofMinutes(5)
         private val json = Json { ignoreUnknownKeys = true }
         private val rng = SecureRandom()
 
         private fun generateCodeVerifier(): String {
-            // 64 bytes → 86 chars base64url, well within RFC 7636's 43-128 range.
             val bytes = ByteArray(64)
             rng.nextBytes(bytes)
             return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
@@ -211,16 +155,24 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
             return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         }
 
+        private fun buildAuthUrl(clientId: String, redirectUri: String, challenge: String, state: String): String =
+            AUTH_URL + "?" + formEncode(
+                "client_id" to clientId,
+                "redirect_uri" to redirectUri,
+                "response_type" to "code",
+                "scope" to "https://www.googleapis.com/auth/drive.appdata openid email",
+                "access_type" to "offline",
+                "prompt" to "consent",
+                "state" to state,
+                "code_challenge" to challenge,
+                "code_challenge_method" to "S256",
+            )
+
+        private const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+
         private fun formEncode(vararg pairs: Pair<String, String>): String =
             pairs.joinToString("&") { (k, v) ->
                 URLEncoder.encode(k, "UTF-8") + "=" + URLEncoder.encode(v, "UTF-8")
-            }
-
-        private fun parseQuery(raw: String): Map<String, String> =
-            raw.split('&').filter { it.isNotEmpty() }.associate {
-                val idx = it.indexOf('=')
-                if (idx < 0) URLDecoder.decode(it, "UTF-8") to ""
-                else URLDecoder.decode(it.substring(0, idx), "UTF-8") to URLDecoder.decode(it.substring(idx + 1), "UTF-8")
             }
 
         /**
@@ -237,20 +189,6 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
                 null
             }
         }
-
-        private const val SUCCESS_HTML = """
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>PwMgr — signed in</title>
-<style>body{font-family:system-ui,sans-serif;background:#1e1b4b;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}main{text-align:center}h1{font-weight:500;margin:0 0 12px}p{opacity:.8;margin:0}</style>
-</head><body><main><h1>You can close this tab</h1><p>PwMgr is now linked to your Google Drive.</p></main></body></html>
-"""
-
-        private fun errorHtml(err: CallbackResult.Error): String = """
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>PwMgr — sign-in error</title>
-<style>body{font-family:system-ui,sans-serif;background:#7f1d1d;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}main{text-align:center;max-width:520px}h1{font-weight:500;margin:0 0 12px}p{opacity:.85;margin:0}code{background:#000;padding:2px 6px;border-radius:4px}</style>
-</head><body><main><h1>Sign-in failed</h1><p>${err.error}${err.description?.let { ": $it" } ?: ""}</p></main></body></html>
-"""
     }
 }
 

@@ -182,6 +182,7 @@ class AppState(
             unlockError = null
             consecutiveFailures = 0
             lockedOutUntilEpochMs = 0
+            requireExplicitUnlock = false
             evaluateSyncState()
             startAutoLockWatcher()
             Result.success(Unit)
@@ -204,7 +205,25 @@ class AppState(
         }
     }
 
+    /**
+     * Manual lock from the UI (Lock now button, window close). Allows biometric auto-unlock
+     * to fire on the next UnlockScreen composition — user intent was "lock briefly".
+     */
     fun lock() {
+        lockInternal(requireExplicit = false)
+    }
+
+    /**
+     * Auto-lock from the idle watcher. Sets [requireExplicitUnlock] so the UnlockScreen
+     * does NOT auto-fire biometric — the user must consciously click "Use biometric" or
+     * type the master password. Without this, DPAPI's silent unlock on Windows makes auto-
+     * lock invisible (lock → instant biometric unwrap → user sees nothing changed).
+     */
+    private fun autoLock() {
+        lockInternal(requireExplicit = true)
+    }
+
+    private fun lockInternal(requireExplicit: Boolean) {
         pendingSyncJob?.cancel()
         pendingSyncJob = null
         autoLockJob?.cancel()
@@ -218,7 +237,15 @@ class AppState(
         payload = null
         screen = if (storage.exists()) Screen.Unlock else Screen.CreateVault
         unlockError = null
+        requireExplicitUnlock = requireExplicit
     }
+
+    /**
+     * True when an idle auto-lock just fired — UnlockScreen skips its automatic biometric
+     * prompt until the user makes an explicit move (click biometric button, type password).
+     */
+    var requireExplicitUnlock: Boolean by mutableStateOf(false)
+        private set
 
     /**
      * Called by screens on user activity (key press, click, scroll). Resets the auto-lock
@@ -262,7 +289,7 @@ class AppState(
                 val now = clock.now().toEpochMilliseconds()
                 val elapsed = now - lastActivityMs
                 if (elapsed >= timeout) {
-                    lock()
+                    autoLock()
                     return@launch
                 }
                 // Wake up either at the projected lock time, or once a second to handle
@@ -483,6 +510,7 @@ class AppState(
                 unlockError = null
                 consecutiveFailures = 0
                 lockedOutUntilEpochMs = 0
+                requireExplicitUnlock = false
                 evaluateSyncState()
                 startAutoLockWatcher()
                 Result.success(Unit)

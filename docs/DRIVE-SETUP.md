@@ -67,6 +67,46 @@ From now on, every save triggers a sync (debounced 2 s). The vault is uploaded a
 
 ---
 
+## 7. Set up Drive sync on Android (same OAuth client)
+
+Android reuses the **same Desktop OAuth client** you created above. No new GCP credentials needed — Google accepts `http://127.0.0.1:PORT` as the redirect URI for Desktop clients, and Android's Chrome can follow a redirect to a loopback port bound by PwMgr.
+
+To enable sync on the Android app, you need to drop the same `drive-config.json` into the app's private files directory: `/data/data/com.pwmgr.android/files/drive-config.json`.
+
+### Via adb (the techie way)
+
+```powershell
+# 1. Connect your device with USB debugging enabled.
+adb push "$env:LOCALAPPDATA\PwMgr\drive-config.json" /sdcard/Download/drive-config.json
+
+# 2. Push it into the app's private dir (needs run-as for non-rooted devices):
+adb shell run-as com.pwmgr.android cp /sdcard/Download/drive-config.json files/drive-config.json
+adb shell rm /sdcard/Download/drive-config.json
+
+# 3. Force-stop and relaunch the app so it picks up the config.
+adb shell am force-stop com.pwmgr.android
+adb shell am start -n com.pwmgr.android/.MainActivity
+```
+
+`run-as` only works on **debuggable** builds. For a release APK signed with your own keystore, the same approach works as long as `android:debuggable="true"` was set OR you use a rooted device with `adb root`.
+
+### After setup
+
+1. Open PwMgr on Android, unlock your vault.
+2. A cloud icon appears in the top bar (same as desktop).
+3. Tap → **Connect Google Drive**.
+4. Chrome Custom Tab opens with the Google sign-in. Pick the same email you added as a test user.
+5. Approve `drive.appdata` scope.
+6. The tab redirects to `http://127.0.0.1:NNNN/callback?code=…` and Chrome displays "You can close this tab" — return to PwMgr.
+
+Your phone and desktop now share the same encrypted vault via Drive's hidden `appDataFolder`. Edits on one device sync to the other within ~2 seconds of save (the same debounced sync as desktop).
+
+### Android limitations
+
+- **Chrome required.** Custom Tabs need Chrome (or another Chromium-based browser) as the default browser. If only Firefox is installed, the auth URL opens in a regular browser tab — still works, just less seamless.
+- **Loopback redirect on locked-down networks.** Some corporate WiFi / public APs block HTTP→localhost redirects. If the auth flow hangs at "you can close this tab" but PwMgr never gets the code, switch to mobile data and try again.
+- **Same master password required.** Phase 5b sync assumes both devices use the same master password. If you change it on desktop, you'll need to re-enter it on Android the next time it pulls.
+
 ## Troubleshooting
 
 **"Error 403: access_denied"** — your Gmail isn't in the test-users list. Go back to step 3.5.
