@@ -1,5 +1,6 @@
 package com.pwmgr.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,8 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
@@ -168,7 +172,31 @@ private fun FailedBlock(email: String?, message: String, onRetry: () -> Unit, on
         if (email != null) {
             Text(email, style = MaterialTheme.typography.bodyMedium)
         }
-        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+
+        // Scrollable + selectable error block so long Drive responses (HTML error pages,
+        // verbose JSON bodies) can be copied for debugging. The full message also goes to
+        // %LOCALAPPDATA%\PwMgr\drive.log via GoogleDriveClient's failure logger.
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .background(MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.small)
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp),
+            ) {
+                Text(
+                    message,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        Text(
+            "Full request/response log: %LOCALAPPDATA%\\PwMgr\\drive.log",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onRetry) { Text("Reconnect") }
             OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }

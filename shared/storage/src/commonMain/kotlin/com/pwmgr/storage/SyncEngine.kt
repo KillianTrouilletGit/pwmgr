@@ -1,6 +1,7 @@
 package com.pwmgr.storage
 
 import com.pwmgr.core.model.VaultPayload
+import com.pwmgr.core.vault.InvalidVaultFormatException
 import kotlinx.datetime.Instant
 
 /**
@@ -48,7 +49,17 @@ class SyncEngine(
                 return SyncOutcome.CreatedRemote(uploaded.etag)
             }
 
-            val remotePayload = decryptRemote(remote.bytes)
+            // Self-heal: a zero-byte or otherwise structurally invalid remote file (typically
+            // an orphan from an interrupted first sync — `createInAppData` succeeded but
+            // `uploadMedia` didn't) is overwritten with the local copy. We DO NOT do this for
+            // AEAD authentication failures (different password / different vault) — those
+            // legitimately propagate up so the user sees the mismatch.
+            val remotePayload = try {
+                decryptRemote(remote.bytes)
+            } catch (_: InvalidVaultFormatException) {
+                val uploaded = cloud.upsert(localBytes, expectedEtag = null)
+                return SyncOutcome.CreatedRemote(uploaded.etag)
+            }
             val mergeResult = MergeEngine.merge(localPayload, remotePayload, now)
             val merged = mergeResult.merged
 

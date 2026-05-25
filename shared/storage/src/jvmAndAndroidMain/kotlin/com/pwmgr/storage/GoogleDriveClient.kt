@@ -44,18 +44,31 @@ class GoogleDriveClient(
         }
     }
 
+    /**
+     * "Update" semantics implemented as DELETE-old + multipart-CREATE-new because
+     * [HttpURLConnection] (used here for Android/JVM portability) doesn't support PATCH —
+     * the only method Google Drive v3 accepts for updating file content. PUT returns a 404
+     * generic page; X-HTTP-Method-Override isn't honored by the /upload/ endpoint.
+     *
+     * Trade-off: the file id rotates on every upsert. SyncEngine's [expectedEtag]
+     * optimistic-concurrency parameter is therefore ignored — concurrent writes from two
+     * devices will silently overwrite each other instead of throwing [ConflictException].
+     * Acceptable for personal single-user use (the only realistic concurrency window is
+     * two devices saving within the same ~second). When we migrate off HttpURLConnection
+     * (likely OkHttp on Android + java.net.http.HttpClient on JVM 11+), restore native
+     * PATCH and the ETag check.
+     */
     override suspend fun upsert(bytes: ByteArray, expectedEtag: String?): RemoteFile = withContext(Dispatchers.IO) {
         val existingId = resolveFileId()
-        if (existingId == null) {
-            // First-time upload: create metadata-only file in appDataFolder, then upload media.
-            val createdId = createInAppData()
-            val updated = uploadMedia(createdId, bytes, ifMatchEtag = null)
-            cachedFileId = createdId
-            updated
-        } else {
-            val updated = uploadMedia(existingId, bytes, ifMatchEtag = expectedEtag)
-            updated
+        if (existingId != null) {
+            deleteFile(existingId)
+            cachedFileId = null
         }
+        val createdId = multipartCreate(bytes)
+        cachedFileId = createdId
+        // We don't get a useful ETag back from multipart create. Use the file id as a
+        // stand-in — the SyncEngine just round-trips this through cloud.get() next time.
+        RemoteFile(id = createdId, etag = createdId, bytes = bytes)
     }
 
     /** Returns the cached file id, looking it up via list() the first time. */
@@ -74,36 +87,66 @@ class GoogleDriveClient(
         return match?.id
     }
 
-    private suspend fun createInAppData(): String {
+    /**
+     * Creates a fresh `vault.enc` in the appDataFolder with content in one multipart POST.
+     * No metadata round-trip needed — the file resource is returned with content set.
+     *
+     * Body shape (RFC 2387 multipart/related):
+     * ```
+     * --BOUNDARY
+     * Content-Type: application/json; charset=utf-8
+     *
+     * {"name":"vault.enc","parents":["appDataFolder"]}
+     * --BOUNDARY
+     * Content-Type: application/octet-stream
+     *
+     * <encrypted vault bytes>
+     * --BOUNDARY--
+     * ```
+     */
+    private suspend fun multipartCreate(bytes: ByteArray): String {
+        val boundary = "----pwmgr" + java.lang.Long.toHexString(System.nanoTime())
         val metadata = """{"name":"$fileName","parents":["appDataFolder"]}"""
-        val (status, body, _) = http(
+        val body = buildMultipartBody(boundary, metadata, bytes)
+        val (status, responseBody, _) = http(
             method = "POST",
-            url = "$DRIVE_API/files?fields=id",
-            body = metadata.encodeToByteArray(),
-            contentType = "application/json; charset=utf-8",
-        )
-        if (status !in 200..299) throw RemoteServerException(status, body.decodeToString())
-        return json.decodeFromString(FileId.serializer(), body.decodeToString()).id
-    }
-
-    private suspend fun uploadMedia(fileId: String, bytes: ByteArray, ifMatchEtag: String?): RemoteFile {
-        val headers = mutableMapOf<String, String>()
-        if (ifMatchEtag != null) headers["If-Match"] = ifMatchEtag
-        val (status, body, etag) = http(
-            method = "PATCH",
-            url = "$UPLOAD_API/files/${urlEnc(fileId)}?uploadType=media&fields=id",
-            body = bytes,
-            contentType = "application/octet-stream",
-            extraHeaders = headers,
+            url = "$UPLOAD_API/files?uploadType=multipart&fields=id",
+            body = body,
+            contentType = "multipart/related; boundary=$boundary",
         )
         when (status) {
-            in 200..299 -> {
-                val parsed = json.decodeFromString(FileId.serializer(), body.decodeToString())
-                return RemoteFile(id = parsed.id, etag = etag ?: "", bytes = bytes)
-            }
-            412 -> throw ConflictException()
+            in 200..299 -> return json.decodeFromString(FileId.serializer(), responseBody.decodeToString()).id
             401 -> throw UnauthorizedException()
-            else -> throw RemoteServerException(status, body.decodeToString())
+            else -> throw RemoteServerException(status, responseBody.decodeToString())
+        }
+    }
+
+    private fun buildMultipartBody(boundary: String, metadata: String, content: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val crlf = "\r\n".toByteArray(Charsets.UTF_8)
+        out.write("--$boundary\r\n".toByteArray(Charsets.UTF_8))
+        out.write("Content-Type: application/json; charset=utf-8\r\n\r\n".toByteArray(Charsets.UTF_8))
+        out.write(metadata.toByteArray(Charsets.UTF_8))
+        out.write(crlf)
+        out.write("--$boundary\r\n".toByteArray(Charsets.UTF_8))
+        out.write("Content-Type: application/octet-stream\r\n\r\n".toByteArray(Charsets.UTF_8))
+        out.write(content)
+        out.write(crlf)
+        out.write("--$boundary--\r\n".toByteArray(Charsets.UTF_8))
+        return out.toByteArray()
+    }
+
+    private suspend fun deleteFile(fileId: String) {
+        val (status, body, _) = http(
+            method = "DELETE",
+            url = "$DRIVE_API/files/${urlEnc(fileId)}",
+        )
+        // 404 is fine — the file might have been deleted concurrently or never existed.
+        if (status !in 200..299 && status != 404) {
+            when (status) {
+                401 -> throw UnauthorizedException()
+                else -> throw RemoteServerException(status, body.decodeToString())
+            }
         }
     }
 
@@ -130,11 +173,43 @@ class GoogleDriveClient(
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val responseBytes = stream?.use { it.readBytes() } ?: ByteArray(0)
             val etag = conn.getHeaderField("ETag")
+            if (status !in 200..299) {
+                logHttpFailure(method, url, status, responseBytes)
+            }
             return HttpResponse(status, responseBytes, etag)
         } catch (e: IOException) {
+            logHttpFailure(method, url, -1, "I/O: ${e.message}".encodeToByteArray())
             throw NetworkException("HTTP $method $url failed: ${e.message}", e)
         } finally {
             conn.disconnect()
+        }
+    }
+
+    /**
+     * Emit a verbose record of any non-2xx response to BOTH stderr (visible in the PowerShell
+     * window where `gradlew :desktopApp:run` was launched) AND to a rolling log file at
+     * `%LOCALAPPDATA%\PwMgr\drive.log` so the user can copy a 404 / 403 body in full without
+     * fighting the UI text-truncation.
+     */
+    private fun logHttpFailure(method: String, url: String, status: Int, body: ByteArray) {
+        val ts = java.time.OffsetDateTime.now().toString()
+        val bodyText = try { body.decodeToString() } catch (_: Throwable) { "<binary, ${body.size} bytes>" }
+        val msg = "[$ts] Drive HTTP $method $url → status=$status\n----- BODY -----\n$bodyText\n----- END -----\n"
+        System.err.println(msg)
+        runCatching {
+            val home = System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home")
+            val dir = java.nio.file.Paths.get(home, "PwMgr")
+            java.nio.file.Files.createDirectories(dir)
+            val logPath = dir.resolve("drive.log")
+            // Append. We don't rotate — for personal use a few MB is fine. If it ever grows
+            // huge, the user can just delete the file.
+            java.nio.file.Files.writeString(
+                logPath,
+                msg,
+                java.nio.charset.StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.APPEND,
+            )
         }
     }
 

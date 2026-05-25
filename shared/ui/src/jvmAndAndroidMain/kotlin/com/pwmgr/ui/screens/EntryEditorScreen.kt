@@ -89,83 +89,91 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(24.dp)
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
                     .widthIn(max = 720.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                TypeSelector(type, onChange = { type = it })
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it; error = null },
-                    label = { Text("Title") },
-                    singleLine = true,
-                    isError = error != null && title.isBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                if (type == EntryType.LOGIN || type == EntryType.IDENTITY) {
+                Section(label = "Basics") {
+                    TypeSelector(type, onChange = { type = it })
                     OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("Username / email") },
+                        value = title,
+                        onValueChange = { title = it; error = null },
+                        label = { Text("Title") },
                         singleLine = true,
+                        isError = error != null && title.isBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
 
-                if (type == EntryType.LOGIN || type == EntryType.CARD) {
-                    PasswordField(
-                        value = password,
-                        onValueChange = { password = it },
-                        reveal = reveal,
-                        onToggleReveal = { reveal = !reveal },
-                        clipboard = clipboard,
-                    )
-                    TextButton(onClick = { showGenerator = !showGenerator }) {
-                        Icon(Icons.Filled.Casino, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (showGenerator) "Hide generator" else "Generate password")
-                    }
-                    if (showGenerator) {
-                        GeneratorPanel(onAccept = { generated ->
-                            password = generated
-                            reveal = true
-                        })
+                if (type == EntryType.LOGIN || type == EntryType.IDENTITY || type == EntryType.CARD) {
+                    Section(label = "Credentials") {
+                        if (type == EntryType.LOGIN || type == EntryType.IDENTITY) {
+                            OutlinedTextField(
+                                value = username,
+                                onValueChange = { username = it },
+                                label = { Text("Username / email") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        if (type == EntryType.LOGIN || type == EntryType.CARD) {
+                            PasswordField(
+                                value = password,
+                                onValueChange = { password = it },
+                                reveal = reveal,
+                                onToggleReveal = { reveal = !reveal },
+                                clipboard = clipboard,
+                            )
+                            TextButton(onClick = { showGenerator = !showGenerator }) {
+                                Icon(Icons.Filled.Casino, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (showGenerator) "Hide generator" else "Generate password")
+                            }
+                            if (showGenerator) {
+                                GeneratorPanel(onAccept = { generated ->
+                                    password = generated
+                                    reveal = true
+                                })
+                            }
+                        }
                     }
                 }
 
                 if (type == EntryType.LOGIN) {
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
-                        label = { Text("URL") },
-                        singleLine = true,
-                        placeholder = { Text("https://example.com") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    Section(label = "URL & two-factor") {
+                        OutlinedTextField(
+                            value = url,
+                            onValueChange = { url = it },
+                            label = { Text("URL") },
+                            singleLine = true,
+                            placeholder = { Text("https://example.com") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
 
-                    OutlinedTextField(
-                        value = totpSeed,
-                        onValueChange = { totpSeed = it },
-                        label = { Text("TOTP seed (base32)") },
-                        singleLine = true,
-                        placeholder = { Text("JBSWY3DPEHPK3PXP — leave empty if no 2FA") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (totpSeed.isNotBlank()) {
-                        TotpCodePanel(seed = totpSeed, clipboard = clipboard)
+                        OutlinedTextField(
+                            value = totpSeed,
+                            onValueChange = { totpSeed = it },
+                            label = { Text("TOTP seed (base32)") },
+                            singleLine = true,
+                            placeholder = { Text("JBSWY3DPEHPK3PXP — leave empty if no 2FA") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (totpSeed.isNotBlank()) {
+                            TotpCodePanel(seed = totpSeed, clipboard = clipboard)
+                        }
                     }
                 }
 
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    singleLine = false,
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Section(label = "Notes") {
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Free-form notes") },
+                        singleLine = false,
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 if (error != null) {
                     Text(error!!, color = MaterialTheme.colorScheme.error)
@@ -396,6 +404,22 @@ private fun saveEntry(
         updatedAt = now,
     )
     return state.upsertEntry(entry)
+}
+
+/**
+ * Visually groups a set of related form fields under a small uppercase label. Adds breathing
+ * room so the editor doesn't read as one giant column.
+ */
+@Composable
+private fun Section(label: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        content()
+    }
 }
 
 @Composable

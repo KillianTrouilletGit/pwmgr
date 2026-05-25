@@ -31,6 +31,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -43,6 +45,9 @@ fun UnlockScreen(state: AppState) {
     var password by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val passwordFocus = remember { FocusRequester() }
+    // Auto-focus the password field on first composition so the user can just start typing.
+    LaunchedEffect(Unit) { passwordFocus.requestFocus() }
 
     // 1Hz tick used to refresh the "Locked for Xs" countdown display below.
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -101,7 +106,7 @@ fun UnlockScreen(state: AppState) {
                         )
                     }
                 },
-                modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth(),
+                modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth().focusRequester(passwordFocus),
             )
 
             // Status zone: lockout countdown takes priority over plain error / attempt counter.

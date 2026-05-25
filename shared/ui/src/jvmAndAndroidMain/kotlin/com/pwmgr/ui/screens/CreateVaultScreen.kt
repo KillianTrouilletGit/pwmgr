@@ -20,12 +20,15 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -39,6 +42,8 @@ fun CreateVaultScreen(state: AppState) {
     var confirm by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
+    val passwordFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { passwordFocus.requestFocus() }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -72,7 +77,7 @@ fun CreateVaultScreen(state: AppState) {
                     }
                 },
                 supportingText = { Text("$MIN_PASSWORD_LEN characters minimum") },
-                modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth(),
+                modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth().focusRequester(passwordFocus),
             )
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(

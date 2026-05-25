@@ -1,5 +1,13 @@
 package com.pwmgr.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -25,13 +33,15 @@ import com.pwmgr.ui.screens.VaultListScreen
  * [AppState] constructed with the platform-appropriate VaultStorage.
  *
  * [extraRoute] lets a platform render screens that don't make sense in shared code —
- * notably [Screen.BrowserExtension], which is Windows-only. The default implementation
- * returns false so unhandled screens fall through to a neutral "not available" view.
+ * notably [Screen.BrowserExtension], which is Windows-only.
+ *
+ * Screen transitions: a short cross-fade + subtle scale via [AnimatedContent] so screen
+ * changes don't feel like teleportation. Tuned to 160 ms — long enough to register, short
+ * enough to not feel sluggish.
  *
  * Auto-lock activity hook: a top-level [pointerInput] block observes every pointer event
  * (touch on Android, mouse/touchpad on desktop) before children handle it and calls
- * [AppState.recordActivity]. Pure-keyboard activity is not currently observed — known
- * limitation, documented in CRYPTO/AUTOFILL polish notes.
+ * [AppState.recordActivity].
  */
 @Composable
 fun PwMgrApp(
@@ -51,17 +61,29 @@ fun PwMgrApp(
                     }
                 },
         ) {
-            when (val s = state.screen) {
-                Screen.CreateVault -> CreateVaultScreen(state)
-                Screen.Unlock -> UnlockScreen(state)
-                Screen.VaultList -> VaultListScreen(state)
-                is Screen.EntryEditor -> EntryEditorScreen(state, s.entryId)
-                Screen.DriveSetup -> DriveSetupScreen(state)
-                Screen.Settings -> SettingsScreen(state)
-                else -> if (!extraRoute(s)) NotAvailableOnThisPlatform()
+            AnimatedContent(
+                targetState = state.screen,
+                transitionSpec = { defaultTransition() },
+                label = "screen",
+            ) { current ->
+                when (current) {
+                    Screen.CreateVault -> CreateVaultScreen(state)
+                    Screen.Unlock -> UnlockScreen(state)
+                    Screen.VaultList -> VaultListScreen(state)
+                    is Screen.EntryEditor -> EntryEditorScreen(state, current.entryId)
+                    Screen.DriveSetup -> DriveSetupScreen(state)
+                    Screen.Settings -> SettingsScreen(state)
+                    else -> if (!extraRoute(current)) NotAvailableOnThisPlatform()
+                }
             }
         }
     }
+}
+
+private fun defaultTransition(): ContentTransform {
+    val durationMs = 160
+    return (fadeIn(animationSpec = tween(durationMs)) + scaleIn(initialScale = 0.98f, animationSpec = tween(durationMs)))
+        .togetherWith(fadeOut(animationSpec = tween(durationMs / 2)) + scaleOut(targetScale = 1.02f, animationSpec = tween(durationMs)))
 }
 
 @Composable
