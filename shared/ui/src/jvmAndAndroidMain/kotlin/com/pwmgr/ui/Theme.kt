@@ -48,7 +48,7 @@ private val DarkColors = darkColorScheme(
 @Composable
 fun PwMgrTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
+        colorScheme = DarkColors, // BlackHole is always dark mode!
         content = content,
     )
 }

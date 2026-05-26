@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PwMgr</string>
-    <string name="autofill_service_label">PwMgr</string>
+    <string name="app_name">BlackHole</string>
+    <string name="autofill_service_label">BlackHole Autofill</string>
     <string name="autofill_unlock_prompt">Unlock PwMgr to autofill</string>
     <string name="autofill_unlock_subtitle">Authenticate to access your vault</string>
     <string name="autofill_no_match">No saved credentials</string>

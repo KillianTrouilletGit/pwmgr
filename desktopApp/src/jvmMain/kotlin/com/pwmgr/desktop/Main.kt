@@ -92,7 +92,7 @@ fun main() = application {
             state.lock()
             exitApplication()
         },
-        title = "PwMgr",
+        title = "BlackHole",
         icon = androidx.compose.ui.res.painterResource("icon.png"),
         state = windowState,
     ) {
