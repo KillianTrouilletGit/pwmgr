@@ -142,6 +142,9 @@ class AppState(
     var pendingRecoveryCode: String? by mutableStateOf(null)
         private set
 
+    /** Temporarily holds the OAuth token after a Drive import until the vault is unlocked. */
+    private var pendingImportToken: OAuthAccount? = null
+
     fun acknowledgeRecoveryCode() {
         pendingRecoveryCode = null
         screen = Screen.VaultList
@@ -250,6 +253,13 @@ class AppState(
             consecutiveFailures = 0
             lockedOutUntilEpochMs = 0
             requireExplicitUnlock = false
+            
+            // If the user just imported from Drive, save the token now that we have the vaultKey.
+            if (pendingImportToken != null) {
+                tokenStore?.write(result.session.vaultKey, pendingImportToken!!)
+                pendingImportToken = null
+            }
+            
             evaluateSyncState()
             startAutoLockWatcher()
             Result.success(Unit)
@@ -437,6 +447,32 @@ class AppState(
         } catch (t: Throwable) {
             syncStatus = SyncStatus.Failed(t.message ?: t::class.simpleName.orEmpty(), cachedAccount?.email)
             Result.failure(t)
+        }
+    }
+
+    /**
+     * Connects to Google Drive to download an existing vault *before* a local vault exists.
+     * The token is kept in memory and persisted automatically during the next `unlock()`.
+     */
+    suspend fun importFromDrive(): Result<Unit> {
+        val oauth = oauthProvider ?: return Result.failure(IllegalStateException("OAuth not provisioned on this platform"))
+        busy = true
+        return try {
+            val account = oauth.authorize() ?: return Result.failure(IllegalStateException("Authorization cancelled"))
+            val cloud = GoogleDriveClient(getAccessToken = { oauth.refreshAccessToken(account.refreshToken) })
+            val remote = cloud.get()
+            if (remote == null) {
+                Result.failure(IllegalStateException("No vault found on Google Drive."))
+            } else {
+                storage.write(remote.bytes)
+                pendingImportToken = account
+                screen = Screen.Unlock
+                Result.success(Unit)
+            }
+        } catch (t: Throwable) {
+            Result.failure(t)
+        } finally {
+            busy = false
         }
     }
 

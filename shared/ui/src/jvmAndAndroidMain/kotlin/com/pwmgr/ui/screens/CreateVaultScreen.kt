@@ -134,6 +134,26 @@ fun CreateVaultScreen(state: AppState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            if (state.syncAvailable || state.saveDriveConfig != null) {
+                Spacer(Modifier.height(32.dp))
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                androidx.compose.material3.TextButton(
+                    enabled = !state.busy,
+                    onClick = {
+                        if (state.syncAvailable) {
+                            scope.launch {
+                                val result = state.importFromDrive()
+                                result.onFailure { localError = it.message ?: "Failed to import from Drive" }
+                            }
+                        } else {
+                            state.openDriveSetup()
+                        }
+                    }
+                ) {
+                    Text(if (state.busy) "Importing…" else "Restore from Google Drive")
+                }
+            }
         }
     }
 }
