@@ -201,12 +201,12 @@ class GoogleDriveClient(
             val dir = java.nio.file.Paths.get(home, "PwMgr")
             java.nio.file.Files.createDirectories(dir)
             val logPath = dir.resolve("drive.log")
-            // Append. We don't rotate — for personal use a few MB is fine. If it ever grows
-            // huge, the user can just delete the file.
-            java.nio.file.Files.writeString(
+            // Append. We don't rotate — for personal use a few MB is fine. Files.writeString
+            // exists on JDK 11+ but only on Android API 33+; we target API 26, so go through
+            // Files.write(bytes, ...) which has been around since Java 7 / Android 26.
+            java.nio.file.Files.write(
                 logPath,
-                msg,
-                java.nio.charset.StandardCharsets.UTF_8,
+                msg.toByteArray(java.nio.charset.StandardCharsets.UTF_8),
                 java.nio.file.StandardOpenOption.CREATE,
                 java.nio.file.StandardOpenOption.APPEND,
             )

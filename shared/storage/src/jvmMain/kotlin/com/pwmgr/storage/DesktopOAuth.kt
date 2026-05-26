@@ -192,26 +192,4 @@ class DesktopOAuth(private val config: DriveOAuthConfig) : OAuthProvider {
     }
 }
 
-/**
- * OAuth client identifiers issued by Google Cloud Console for the user's GCP project.
- *
- * Despite the name, "client secret" is not actually secret for Desktop OAuth clients — it's
- * embedded in distributed desktop apps. PKCE provides the real security against authorization
- * code interception. We still send it because Google's token endpoint requires it for Desktop
- * client types.
- */
-data class DriveOAuthConfig(val clientId: String, val clientSecret: String) {
-    companion object {
-        fun loadFromFile(path: java.nio.file.Path): DriveOAuthConfig? {
-            if (!java.nio.file.Files.exists(path)) return null
-            val text = java.nio.file.Files.readString(path)
-            val parsed = configJson.decodeFromString(FileFormat.serializer(), text)
-            return DriveOAuthConfig(parsed.clientId, parsed.clientSecret)
-        }
-
-        private val configJson = Json { ignoreUnknownKeys = true }
-
-        @Serializable
-        private data class FileFormat(val clientId: String, val clientSecret: String)
-    }
-}
+// DriveOAuthConfig moved to jvmAndAndroidMain so AndroidOAuth can use the same type.
