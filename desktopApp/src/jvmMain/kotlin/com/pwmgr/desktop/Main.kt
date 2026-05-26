@@ -68,6 +68,9 @@ fun main() = application {
             settingsStore = settingsStore,
             exportSink = exportSink,
             browserExtensionAvailable = isWindows(),
+            saveDriveConfig = { id, secret ->
+                DriveOAuthConfig.saveToFile(defaultDriveConfigPath(), DriveOAuthConfig(id, secret))
+            }
         )
     }
     val ipcManager = remember(state) { IpcManager(state, defaultHandshakePath()) }

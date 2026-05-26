@@ -88,7 +88,7 @@ fun VaultListScreen(state: AppState) {
                 totalCount = payload.entries.count { it.deletedAt == null },
                 revision = state.session?.meta?.revision ?: 0L,
                 syncStatus = state.syncStatus,
-                syncAvailable = state.syncAvailable,
+                syncAvailable = state.syncAvailable || state.saveDriveConfig != null,
                 browserExtensionAvailable = state.browserExtensionAvailable,
                 query = query,
                 onQueryChange = { query = it },

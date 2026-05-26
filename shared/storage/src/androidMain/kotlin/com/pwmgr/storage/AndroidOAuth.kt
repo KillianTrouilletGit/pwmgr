@@ -78,7 +78,7 @@ class AndroidOAuth(
         parsed.access_token
     }
 
-    private fun exchangeCodeForTokens(code: String, verifier: String, redirectUri: String): OAuthAccount? {
+    private suspend fun exchangeCodeForTokens(code: String, verifier: String, redirectUri: String): OAuthAccount? {
         val body = formEncode(
             "client_id" to config.clientId,
             "client_secret" to config.clientSecret,
@@ -87,8 +87,22 @@ class AndroidOAuth(
             "grant_type" to "authorization_code",
             "redirect_uri" to redirectUri,
         )
-        val response = postForm(TOKEN_URL, body)
-        if (response.status !in 200..299) return null
+        
+        var response: HttpResp? = null
+        for (i in 1..30) {
+            try {
+                response = postForm(TOKEN_URL, body)
+                break
+            } catch (e: Exception) {
+                if (i == 30) throw e
+                // Android 9+ blocks DNS resolution for background processes. Since the
+                // Chrome Custom Tab is currently in the foreground, our app process is
+                // restricted until the user closes the tab. We retry every second.
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+        
+        if (response == null || response.status !in 200..299) return null
         val parsed = json.decodeFromString(TokenResponse.serializer(), response.body.decodeToString())
         val refreshToken = parsed.refresh_token ?: return null
         val email = parsed.id_token?.let { decodeEmailFromIdToken(it) }

@@ -75,6 +75,7 @@ class AppState(
     private val exportSink: ExportSink? = null,
     /** Surface the Browser-Extension nav button — Windows-only feature. */
     val browserExtensionAvailable: Boolean = false,
+    val saveDriveConfig: ((clientId: String, clientSecret: String) -> Unit)? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
 

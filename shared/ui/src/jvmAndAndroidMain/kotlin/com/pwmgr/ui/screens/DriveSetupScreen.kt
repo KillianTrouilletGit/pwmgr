@@ -86,6 +86,7 @@ fun DriveSetupScreen(state: AppState) {
                                     )
                                 }
                             },
+                            saveDriveConfig = state.saveDriveConfig
                         )
                         is SyncStatus.Ready -> ConnectedBlock(
                             email = status.email,
@@ -132,18 +133,67 @@ private fun StatusHero(status: SyncStatus) {
 }
 
 @Composable
-private fun NotConfiguredBlock(available: Boolean, inProgress: Boolean, onConnect: () -> Unit) {
+private fun NotConfiguredBlock(
+    available: Boolean,
+    inProgress: Boolean,
+    onConnect: () -> Unit,
+    saveDriveConfig: ((String, String) -> Unit)?
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Connect a Google account to back up your vault to Drive's hidden app folder. " +
-                "Your vault stays encrypted — Google never sees its contents.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Button(onClick = onConnect, enabled = available && !inProgress) {
-            Text(if (inProgress) "Waiting for browser…" else "Connect Google Drive")
-        }
-        if (!available) {
+        if (available) {
+            Text(
+                "Connect a Google account to back up your vault to Drive's hidden app folder. " +
+                    "Your vault stays encrypted — Google never sees its contents.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onConnect, enabled = !inProgress) {
+                Text(if (inProgress) "Waiting for browser…" else "Connect Google Drive")
+            }
+        } else if (saveDriveConfig != null) {
+            var clientId by remember { mutableStateOf("") }
+            var clientSecret by remember { mutableStateOf("") }
+            var isSaved by remember { mutableStateOf(false) }
+
+            if (isSaved) {
+                Text(
+                    "Configuration saved! Please restart the application to connect to Google Drive.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            } else {
+                Text(
+                    "Drive sync is not configured. Enter your Google Cloud OAuth credentials below.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = clientId,
+                    onValueChange = { clientId = it },
+                    label = { Text("Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = clientSecret,
+                    onValueChange = { clientSecret = it },
+                    label = { Text("Client Secret") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = {
+                        if (clientId.isNotBlank() && clientSecret.isNotBlank()) {
+                            saveDriveConfig(clientId.trim(), clientSecret.trim())
+                            isSaved = true
+                        }
+                    },
+                    enabled = clientId.isNotBlank() && clientSecret.isNotBlank()
+                ) {
+                    Text("Save & Restart")
+                }
+            }
+        } else {
             Text(
                 "Drive sync is not enabled on this build. See docs/DRIVE-SETUP.md.",
                 style = MaterialTheme.typography.bodySmall,

@@ -58,6 +58,9 @@ class MainActivity : FragmentActivity() {
                     settingsStore = settingsStore,
                     oauthProvider = oauth,
                     tokenStore = tokenStore,
+                    saveDriveConfig = { id, secret ->
+                        DriveOAuthConfig.saveToFile(driveConfigPath, DriveOAuthConfig(id, secret))
+                    }
                 ).also { appState = it }
             }
             PwMgrApp(state)
@@ -65,9 +68,8 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onStop() {
-        // Lock when the activity is no longer visible. Phase 9 polish will add a
-        // configurable timeout instead of locking immediately.
-        appState?.lock()
+        // We no longer lock immediately on stop. The auto-lock watcher in AppState
+        // will handle background locking based on the user's configured timeout.
         super.onStop()
     }
 }

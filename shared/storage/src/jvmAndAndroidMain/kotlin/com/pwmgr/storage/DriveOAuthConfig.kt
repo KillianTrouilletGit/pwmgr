@@ -28,6 +28,15 @@ data class DriveOAuthConfig(val clientId: String, val clientSecret: String) {
             return DriveOAuthConfig(parsed.clientId, parsed.clientSecret)
         }
 
+        fun saveToFile(path: Path, config: DriveOAuthConfig) {
+            val format = FileFormat(config.clientId, config.clientSecret)
+            val text = configJson.encodeToString(FileFormat.serializer(), format)
+            Files.createDirectories(path.parent)
+            val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
+            Files.write(tmp, text.encodeToByteArray())
+            Files.move(tmp, path, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+
         private val configJson = Json { ignoreUnknownKeys = true }
 
         @Serializable
