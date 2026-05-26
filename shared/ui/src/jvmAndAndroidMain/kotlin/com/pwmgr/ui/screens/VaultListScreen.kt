@@ -45,7 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,6 +80,8 @@ fun VaultListScreen(state: AppState) {
     }
 
     Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             TopBar(
                 count = entries.size,
@@ -105,7 +107,11 @@ fun VaultListScreen(state: AppState) {
             )
         },
     ) { padding ->
-        Surface(modifier = Modifier.fillMaxSize().padding(padding), color = MaterialTheme.colorScheme.background) {
+        Surface(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            color = androidx.compose.ui.graphics.Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onBackground
+        ) {
             if (entries.isEmpty()) {
                 EmptyState(isFiltered = query.isNotBlank(), onAdd = { state.openEditor(null) })
             } else {
@@ -148,7 +154,7 @@ private fun TopBar(
 ) {
     Column {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -174,15 +180,6 @@ private fun TopBar(
                     }
                 }
             }
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = { Text("Search") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.width(240.dp),
-            )
-            Spacer(Modifier.width(8.dp))
             if (syncAvailable) {
                 SyncStatusButton(syncStatus, onClick = onSyncClick, onSyncNow = onSyncNow)
                 Spacer(Modifier.width(4.dp))
@@ -198,6 +195,24 @@ private fun TopBar(
             IconButton(onClick = onLock) {
                 Icon(Icons.Filled.Lock, contentDescription = "Lock vault")
             }
+        }
+        
+        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            androidx.compose.material3.OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search vault...") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CircleShape,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                    focusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.05f),
+                )
+            )
         }
         // Animated linear progress bar appears only while syncing — a thin visual cue at the
         // very top of the content area that something async is happening without occupying
@@ -335,6 +350,7 @@ private fun EntryRow(entry: VaultEntry, onClick: () -> Unit) {
             .graphicsLayer { alpha = 1f },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, hoveredElevation = 4.dp, focusedElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -387,9 +403,9 @@ private fun EntryRow(entry: VaultEntry, onClick: () -> Unit) {
 @Composable
 private fun colorForType(type: EntryType) = when (type) {
     EntryType.LOGIN -> MaterialTheme.colorScheme.primary
-    EntryType.SECURE_NOTE -> MaterialTheme.colorScheme.tertiary
+    EntryType.SECURE_NOTE -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
     EntryType.CARD -> MaterialTheme.colorScheme.secondary
-    EntryType.IDENTITY -> MaterialTheme.colorScheme.primary
+    EntryType.IDENTITY -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)
 }
 
 @Composable

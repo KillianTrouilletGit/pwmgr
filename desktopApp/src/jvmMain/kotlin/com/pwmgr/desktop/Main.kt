@@ -90,6 +90,7 @@ fun main() = application {
             exitApplication()
         },
         title = "PwMgr",
+        icon = androidx.compose.ui.res.painterResource("icon.png"),
         state = windowState,
     ) {
         PwMgrApp(state) { screen ->

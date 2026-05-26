@@ -30,7 +30,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -75,7 +74,11 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
     var showGenerator by remember { mutableStateOf(false) }
     val clipboard = rememberClipboardController(autoClearMs = state.settings.clipboardClearMs)
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EditorTopBar(
                 titleText = if (isNew) "New entry" else "Edit entry",
@@ -95,7 +98,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
             ) {
                 Section(label = "Basics") {
                     TypeSelector(type, onChange = { type = it })
-                    OutlinedTextField(
+                    SpaceTextField(
                         value = title,
                         onValueChange = { title = it; error = null },
                         label = { Text("Title") },
@@ -108,7 +111,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                 if (type == EntryType.LOGIN || type == EntryType.IDENTITY || type == EntryType.CARD) {
                     Section(label = "Credentials") {
                         if (type == EntryType.LOGIN || type == EntryType.IDENTITY) {
-                            OutlinedTextField(
+                            SpaceTextField(
                                 value = username,
                                 onValueChange = { username = it },
                                 label = { Text("Username / email") },
@@ -141,7 +144,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
 
                 if (type == EntryType.LOGIN) {
                     Section(label = "URL & two-factor") {
-                        OutlinedTextField(
+                        SpaceTextField(
                             value = url,
                             onValueChange = { url = it },
                             label = { Text("URL") },
@@ -150,7 +153,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                             modifier = Modifier.fillMaxWidth(),
                         )
 
-                        OutlinedTextField(
+                        SpaceTextField(
                             value = totpSeed,
                             onValueChange = { totpSeed = it },
                             label = { Text("TOTP seed (base32)") },
@@ -165,7 +168,7 @@ fun EntryEditorScreen(state: AppState, entryId: String?) {
                 }
 
                 Section(label = "Notes") {
-                    OutlinedTextField(
+                    SpaceTextField(
                         value = notes,
                         onValueChange = { notes = it },
                         label = { Text("Free-form notes") },
@@ -266,7 +269,7 @@ private fun PasswordField(
     onToggleReveal: () -> Unit,
     clipboard: ClipboardController,
 ) {
-    OutlinedTextField(
+    SpaceTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text("Password") },
@@ -462,3 +465,38 @@ private fun TotpCodePanel(seed: String, clipboard: ClipboardController) {
 /** Splits "287082" into "287 082" for readability. */
 private fun formatCode(code: String): String =
     if (code.length == 6) "${code.substring(0, 3)} ${code.substring(3)}" else code
+
+@Composable
+private fun SpaceTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: @Composable (() -> Unit)? = null,
+    placeholder: @Composable (() -> Unit)? = null,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+    isError: Boolean = false,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = label,
+        placeholder = placeholder,
+        singleLine = singleLine,
+        minLines = minLines,
+        isError = isError,
+        trailingIcon = trailingIcon,
+        visualTransformation = visualTransformation,
+        modifier = modifier,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+            focusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.05f),
+            errorBorderColor = MaterialTheme.colorScheme.error,
+        )
+    )
+}

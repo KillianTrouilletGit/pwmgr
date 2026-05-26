@@ -11,6 +11,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +55,7 @@ fun PwMgrApp(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
@@ -63,6 +65,7 @@ fun PwMgrApp(
                     }
                 },
         ) {
+            StarryBackground()
             AnimatedContent(
                 targetState = state.screen,
                 transitionSpec = { defaultTransition() },
@@ -95,6 +98,35 @@ private fun NotAvailableOnThisPlatform() {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.fillMaxSize().padding(48.dp), contentAlignment = Alignment.Center) {
             Text("This feature is not available on this platform.", style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable
+fun StarryBackground() {
+    val starColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+    val starColorBright = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+    val stars = androidx.compose.runtime.remember {
+        val random = kotlin.random.Random(42)
+        List(150) {
+            Triple(random.nextFloat(), random.nextFloat(), random.nextFloat())
+        }
+    }
+    
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+        
+        for (star in stars) {
+            val x = star.first * width
+            val y = star.second * height
+            val radius = star.third * 1.5f + 0.5f
+            val isBright = star.third > 0.85f
+            drawCircle(
+                color = if (isBright) starColorBright else starColor,
+                radius = radius,
+                center = androidx.compose.ui.geometry.Offset(x, y)
+            )
         }
     }
 }
