@@ -28,24 +28,30 @@ object FormParser {
             val root = structure.getWindowNodeAt(i).rootViewNode
             walk(root, candidates)
         }
-        if (candidates.none { it.kind == FieldKind.PASSWORD }) return null
+        
+        if (candidates.isEmpty()) return null
 
         val webDomain = candidates.firstNotNullOfOrNull { it.webDomain }
-        // Index in the candidate list IS the tree-walk order; use it to pick the username
-        // closest to the password field (typical login forms have them adjacent).
         val passwordIdx = candidates.indexOfFirst { it.kind == FieldKind.PASSWORD }
-        val passwordField = candidates[passwordIdx]
-        val usernameField = candidates
-            .withIndex()
-            .filter { it.value.kind == FieldKind.USERNAME }
-            .minByOrNull { kotlin.math.abs(it.index - passwordIdx) }
-            ?.value
+        val passwordField = candidates.getOrNull(passwordIdx)
+        
+        // Pick the username closest to the password field, or just the first username if no password field.
+        val usernameField = if (passwordIdx != -1) {
+            candidates.withIndex()
+                .filter { it.value.kind == FieldKind.USERNAME }
+                .minByOrNull { kotlin.math.abs(it.index - passwordIdx) }
+                ?.value
+        } else {
+            candidates.firstOrNull { it.kind == FieldKind.USERNAME }
+        }
+
+        if (passwordField == null && usernameField == null) return null
 
         return ParsedForm(
             packageName = packageName,
             webDomain = webDomain?.normalizeHost(),
             usernameFieldId = usernameField?.id,
-            passwordFieldId = passwordField.id,
+            passwordFieldId = passwordField?.id,
         )
     }
 
@@ -107,8 +113,8 @@ object FormParser {
             node.text?.toString(),
         ).joinToString(" ").lowercase()
         if (haystack.isNotEmpty()) {
-            if (haystack.containsAny("password", "passwd")) return FieldKind.PASSWORD
-            if (haystack.containsAny("username", "user_name", "user-name", "email", "login")) return FieldKind.USERNAME
+            if (haystack.containsAny("password", "passwd", "mot de passe", "mdp", "senha", "contraseña")) return FieldKind.PASSWORD
+            if (haystack.containsAny("username", "user_name", "user-name", "email", "login", "utilisateur", "correo")) return FieldKind.USERNAME
         }
         return null
     }
@@ -141,5 +147,5 @@ data class ParsedForm(
     val packageName: String,
     val webDomain: String?,
     val usernameFieldId: AutofillId?,
-    val passwordFieldId: AutofillId,
+    val passwordFieldId: AutofillId?,
 )
