@@ -36,6 +36,9 @@ compose.desktop {
             packageName = "PwMgr"
             packageVersion = "0.1.0"
         }
+        buildTypes.release.proguard {
+            isEnabled.set(false)
+        }
     }
 }
 
