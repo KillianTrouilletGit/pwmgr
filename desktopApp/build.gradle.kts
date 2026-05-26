@@ -21,6 +21,8 @@ kotlin {
                 // @Serializable / Json used by HandshakeFile + ExtensionInstaller + DesktopOAuth.
                 implementation(libs.kotlinx.serialization.json)
                 implementation("com.formdev:flatlaf:3.4")
+                implementation(libs.jna)
+                implementation(libs.jna.platform)
             }
         }
     }

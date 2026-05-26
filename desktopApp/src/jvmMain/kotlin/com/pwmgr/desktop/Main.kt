@@ -8,6 +8,13 @@ import androidx.compose.ui.window.Window
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.runtime.LaunchedEffect
+import com.sun.jna.Library
+import com.sun.jna.Native
+import com.sun.jna.Pointer
+import com.sun.jna.platform.win32.WinDef.HWND
+import com.sun.jna.platform.win32.WinNT.HRESULT
+import com.sun.jna.ptr.IntByReference
 import com.pwmgr.desktop.extension.BrowserExtensionScreen
 import com.pwmgr.desktop.extension.ExtensionInstaller
 import com.pwmgr.desktop.ipc.IpcManager
@@ -49,6 +56,13 @@ private fun nativeHostBatPath(): Path {
 }
 
 private fun isWindows(): Boolean = System.getProperty("os.name").lowercase().contains("win")
+
+interface Dwmapi : Library {
+    companion object {
+        val INSTANCE: Dwmapi = Native.load("dwmapi", Dwmapi::class.java)
+    }
+    fun DwmSetWindowAttribute(hwnd: HWND, dwAttribute: Int, pvAttribute: IntByReference, cbAttribute: Int): HRESULT
+}
 
 fun main() {
     System.setProperty("flatlaf.useWindowDecorations", "true")
@@ -101,6 +115,15 @@ fun main() {
         icon = androidx.compose.ui.res.painterResource("icon.png"),
         state = windowState,
     ) {
+        val windowHandle = this.window.windowHandle
+        LaunchedEffect(windowHandle) {
+            if (isWindows()) {
+                val hwnd = HWND(Pointer(windowHandle))
+                val DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                val attr = IntByReference(1)
+                Dwmapi.INSTANCE.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, attr, 4)
+            }
+        }
         PwMgrApp(state) { screen ->
             when (screen) {
                 Screen.BrowserExtension -> {
