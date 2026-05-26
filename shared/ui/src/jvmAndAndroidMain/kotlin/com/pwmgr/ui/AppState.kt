@@ -256,8 +256,11 @@ class AppState(
             
             // If the user just imported from Drive, save the token now that we have the vaultKey.
             if (pendingImportToken != null) {
-                tokenStore?.write(result.session.vaultKey, pendingImportToken!!)
+                val tokenToSave = pendingImportToken!!
                 pendingImportToken = null
+                scope.launch {
+                    tokenStore?.write(result.session.vaultKey, tokenToSave)
+                }
             }
             
             evaluateSyncState()

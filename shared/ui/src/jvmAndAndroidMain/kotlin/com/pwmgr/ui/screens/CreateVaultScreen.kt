@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.pwmgr.ui.AppState
 import com.pwmgr.ui.PasswordStrength
 import com.pwmgr.ui.PasswordStrengthBar
