@@ -255,15 +255,17 @@ class AppState(
             requireExplicitUnlock = false
             
             // If the user just imported from Drive, save the token now that we have the vaultKey.
-            if (pendingImportToken != null) {
-                val tokenToSave = pendingImportToken!!
-                pendingImportToken = null
+            val tokenToSave = pendingImportToken
+            pendingImportToken = null
+            
+            if (tokenToSave != null) {
                 scope.launch {
                     tokenStore?.write(result.session.vaultKey, tokenToSave)
+                    evaluateSyncState()
                 }
+            } else {
+                evaluateSyncState()
             }
-            
-            evaluateSyncState()
             startAutoLockWatcher()
             Result.success(Unit)
         } catch (e: WrongPasswordException) {
