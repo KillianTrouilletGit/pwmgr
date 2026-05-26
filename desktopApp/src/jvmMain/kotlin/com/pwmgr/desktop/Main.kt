@@ -1,5 +1,6 @@
 package com.pwmgr.desktop
 
+import com.formdev.flatlaf.FlatDarkLaf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -49,7 +50,11 @@ private fun nativeHostBatPath(): Path {
 
 private fun isWindows(): Boolean = System.getProperty("os.name").lowercase().contains("win")
 
-fun main() = application {
+fun main() {
+    System.setProperty("flatlaf.useWindowDecorations", "true")
+    FlatDarkLaf.setup()
+    
+    application {
     val storage = remember { VaultStorage(defaultVaultPath()) }
     val driveConfig = remember { DriveOAuthConfig.loadFromFile(defaultDriveConfigPath()) }
     val oauth: OAuthProvider? = remember(driveConfig) { driveConfig?.let { DesktopOAuth(it) } }

@@ -20,6 +20,7 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 // @Serializable / Json used by HandshakeFile + ExtensionInstaller + DesktopOAuth.
                 implementation(libs.kotlinx.serialization.json)
+                implementation("com.formdev:flatlaf:3.4")
             }
         }
     }
