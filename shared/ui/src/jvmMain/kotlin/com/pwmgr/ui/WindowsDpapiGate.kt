@@ -28,17 +28,7 @@ import kotlin.io.path.readBytes
  */
 class WindowsDpapiGate(private val wrapPath: Path) : BiometricGate {
 
-    override suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            // Touch the API with a trivial round-trip to verify Crypt32 is reachable.
-            val probe = byteArrayOf(0x42)
-            val protected = Crypt32Util.cryptProtectData(probe, ENTROPY, 0, DESCRIPTION, null)
-            val recovered = Crypt32Util.cryptUnprotectData(protected, ENTROPY, 0, null)
-            recovered.contentEquals(probe)
-        } catch (_: Throwable) {
-            false
-        }
-    }
+    override suspend fun isAvailable(): Boolean = false
 
     override fun isEnrolled(): Boolean = wrapPath.exists()
 

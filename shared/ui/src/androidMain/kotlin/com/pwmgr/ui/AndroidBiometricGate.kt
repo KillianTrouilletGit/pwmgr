@@ -149,15 +149,21 @@ class AndroidBiometricGate(
      */
     private suspend fun prompt(cipher: Cipher, title: String, subtitle: String): Cipher? =
         suspendCancellableCoroutine { cont ->
+            lateinit var observer: androidx.lifecycle.LifecycleEventObserver
+            
+            val cleanup = {
+                activity.lifecycle.removeObserver(observer)
+            }
+
             val callback = object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    cont.resume(result.cryptoObject?.cipher)
+                    cleanup()
+                    if (cont.isActive) cont.resume(result.cryptoObject?.cipher)
                 }
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    cont.resume(null)
+                    cleanup()
+                    if (cont.isActive) cont.resume(null)
                 }
-                // onAuthenticationFailed: a transient mismatch. The prompt UI will allow the
-                // user to retry. We don't resume here — we wait for either success or error.
             }
             val executor = ContextCompat.getMainExecutor(activity)
             val prompt = BiometricPrompt(activity, executor, callback)
@@ -167,7 +173,27 @@ class AndroidBiometricGate(
                 .setNegativeButtonText("Cancel")
                 .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
                 .build()
-            prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
+
+            observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                    cleanup()
+                    prompt.cancelAuthentication()
+                    if (cont.isActive) cont.resume(null)
+                }
+            }
+            activity.lifecycle.addObserver(observer)
+
+            cont.invokeOnCancellation {
+                cleanup()
+                prompt.cancelAuthentication()
+            }
+
+            try {
+                prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
+            } catch (t: Throwable) {
+                cleanup()
+                if (cont.isActive) cont.resume(null)
+            }
         }
 
     private fun writeAtomic(path: Path, bytes: ByteArray) {
