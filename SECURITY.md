@@ -4,7 +4,7 @@
 
 If you find a security issue in PwMgr, please **do not file a public GitHub issue**.
 
-Instead, email the details to: `YOUR_EMAIL@example.com` (replace before publishing).
+Instead, email the details to: ktrouillethayot@gmail.com
 
 What helps:
 
